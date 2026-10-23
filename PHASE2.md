@@ -173,6 +173,120 @@ Auth (register/login/token), named worlds + world locks, punch/place, farming/se
 5. Next Pixeltopia tickets stay offline: SFX, touch, weather machine, avatar, backpack UI — then multiplayer prep docs → Phase 3 spike.
 
 
+
+
+### 2.13 Final APK build (Godot Android export)
+
+Ship an **original** Pixeltopia Android `.apk` only after Phase 2 content is feature-complete enough to feel like a sandbox slice — **not** a Growtopia clone APK. Branding, icons, package name, and store copy must be **Pixeltopia** (or another original name), never Growtopia assets/logos/UI chrome.
+
+#### Feature-complete gate (before export)
+
+Do **not** cut a release APK until most of these are true:
+
+- [x] Craft UI + recipes (done)
+- [x] Extra tile + second crop (Sand, Azureoot — done)
+- [ ] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
+- [ ] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
+- [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
+- [ ] Audio juice (place/break/harvest/craft) + mute
+- [ ] Save slots / settings polish (or at least stable single-slot save with version field)
+- [ ] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
+- [ ] Headless/smoke + on-device smoke: plant Groveberry + Azureoot, craft Plank/Torch, save/load
+
+Internal debug APKs for testers are OK earlier; **Play-ready** waits for the gate.
+
+#### Android export template & project setup
+
+1. Install matching **Android export templates** for Godot 4.3+ (Project → Export → Manage Export Templates).
+2. Install Android SDK / NDK / JDK as Godot docs require; set paths in Editor Settings → Export → Android.
+3. Add export preset **Android**: package `com.pixelsandbox…` is *wrong* — use something like `com.<yourname>.pixeltopia` (original).
+4. App name / icon / splash: original Pixeltopia art only (replace default `icon.svg` with a proper adaptive icon).
+5. Permissions: start minimal (Internet only if/when multiplayer exists; Phase 2 single-player needs none for core play).
+6. Orientations: landscape recommended for sandbox hotbar; test portrait separately if you support it.
+
+#### Keystore / signing
+
+- Create a **release keystore** once (`keytool -genkeypair …`); store password + `.jks` **off-repo** (never commit to GitHub).
+- Debug builds can use Godot’s debug keystore; Play uploads need the release key.
+- Back up keystore + passwords; losing them blocks updates under the same Play listing.
+- Prefer separate debug vs release presets in the export dialog.
+
+#### Release checklist
+
+1. Gate above mostly green; bump `config/version` in `project.godot` / Android versionCode.
+2. Export **AAB** for Play (preferred) or APK for sideload/testers.
+3. Install on a real device; verify craft, planting, pause save/load, UI tap targets.
+4. Confirm no third-party game names/assets in UI strings or store listing.
+5. Privacy policy / content rating if publishing publicly.
+6. Tag git release (`v0.2.0-phase2`) matching the binary.
+7. Multiplayer online services are **out of scope** for this APK unless Phase 3 is explicitly in that build.
+
+#### Notes
+
+- Capacitor/WebView (Pixel Sandbox APK style) is a different pipeline; Pixeltopia’s path is **native Godot Android export**.
+- Do not ship against Growtopia servers, trademarks, or copied UI.
+
+
+### 2.14 Growtopia reference (mechanics only — original art/UI)
+
+Public research only (no account login). Official site `growtopia.com` returned **HTTP 500** at research time; `growtopiagame.com` (official) loaded successfully for marketing/feature copy; primary mechanic sources: [Growtopia Wiki](https://growtopia.fandom.com/wiki/Growtopia), Concepts, Seed/World Lock/Gems/Weather Machine pages, and publisher description mirrored on the wiki. **Do not** copy Growtopia assets, fonts, logos, item names, or HUD layouts into Pixeltopia.
+
+#### What Growtopia is
+
+| | |
+|--|--|
+| **Genre** | 2D creative sandbox platformer **MMO** (open worlds, adventure/social) |
+| **Mode** | Online multiplayer; free-to-play with gem currency |
+| **Platforms** | Android, iOS, Windows, Mac (consoles discontinued); Steam later |
+| **Publisher** | Originally Robinson/Hamumu; Ubisoft since 2017 |
+
+#### Core mechanics (public description)
+
+- Punch/break and place blocks; platformer movement across tile worlds
+- **Seeds → trees → harvest**; heart of the loop is collecting seeds, growing, harvesting
+- **Splicing:** plant/combine two compatible seeds to create a new tree/item (third seed rejected)
+- **World Lock:** claim/protect a whole world; access lists, kick/ban, public build modes, etc.
+- **Gems:** currency from breaking/harvesting (and IAP); store purchases (e.g. locks, packs)
+- Travel between named worlds; chat / messaging; thousands of items; mobile-first UI
+- **Weather Machines:** placeable devices that change a world’s **background / atmosphere** (Sunny, Night, Rainy City, Aurora-like themes, etc.) — often tied to lock access
+- Avatars wear layered cosmetics (clothing / accessories); social identity matters
+
+#### Visual / UI (observe, don’t copy)
+
+- Bright colorful **pixel** worlds; small character with simple face
+- Bottom inventory / hotbar-style selection; wrench/world UI for locks & devices
+- Newbie-friendly large controls; heavy item iconography
+
+#### What Pixeltopia may adopt (**mechanics / feel only**)
+
+| Growtopia idea | Pixeltopia approach (original) |
+|----------------|--------------------------------|
+| Break/place + farm loop | Already Phase 1 (Groveberry); Azureoot expands crops |
+| Seed combining / recipes | Local **craft UI** now; optional later “splice-like” recipes with original items |
+| Weather machine | Phase 2 §2.8 — sun-only lighting + moods (Aurora, City/Overcast); original device UI |
+| Small customizable avatar | Phase 2 §2.9 — original pixel layers |
+| Bottom hotbar + backpack | Phase 2 §2.10 — original layout/colors/icons |
+| Named worlds + locks | Phase 3+ (needs server); single-player “world save slots” first |
+| Gems / trade / chat | Phase 3+; not required for Phase 2 fun |
+| ~100 players / world | See §2.11 — not Phase 2; custom server later |
+
+#### Gaps vs current Phase 2 plan
+
+| Growtopia pillar | In PHASE2 plan? | Status |
+|------------------|-----------------|--------|
+| Sandbox break/place | Yes (baseline) | Done |
+| Farming / multiple crops | Yes §2.1 | Partial (2 crops) |
+| Craft / combine | Yes §2.2 | Done (craft; not full splice graph) |
+| Weather machine | Yes §2.8 | Planned |
+| Avatar cosmetics | Yes §2.9 | Planned |
+| Bottom hotbar / backpack UI | Yes §2.10 | Partial (hotbar; backpack open) |
+| Audio / touch / save slots | Yes §2.4–2.6 | Planned |
+| Online worlds, locks, gems, trade, chat | Explicitly later / §2.11 | Not Phase 2 |
+| Exact Growtopia UI/branding | **Forbidden** | Never |
+
+**Login note:** No Growtopia account session was used; official homepage fetch failed (500). Wiki + public pages were enough for mechanics reference.
+
+
 ## Explicitly later (not Phase 2 gameplay)
 
 | Topic | Note |
@@ -180,7 +294,7 @@ Auth (register/login/token), named worlds + world locks, punch/place, farming/se
 | Multiplayer / WebSocket server | Phase 3+ |
 | Accounts, chat, trade, gems economy | Phase 3+ |
 | Authoritative anti-cheat | Needs server |
-| Play Store packaging | After Phase 2 content feels fun |
+| Play Store packaging | After §2.13 feature gate + signing |
 
 ### Multiplayer prep only (optional, no live netcode)
 
@@ -207,4 +321,5 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. Character customize (skin/hair/clothes/accessories) + walk in world
 7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
+8. Final Android APK export (§2.13) after feature gate
 
