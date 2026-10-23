@@ -79,7 +79,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_place(t)
 
 func _hotbar_keys() -> void:
-	for i in range(mini(9, inv.slot_count())):
+	for i in range(mini(9, inv.hotbar_len())):
 		if Input.is_physical_key_pressed(KEY_1 + i):
 			inv.select(i)
 

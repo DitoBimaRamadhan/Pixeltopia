@@ -46,8 +46,8 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 
 ### 2.5 UX & input
 
-- [ ] Touch / mobile: on-screen move + jump + punch / place (Godot touch buttons)
-- [ ] Mouse scroll to change hotbar; click hotbar slots
+- [x] Touch / mobile: on-screen move + jump + punch / place (Godot touch buttons)
+- [x] Mouse scroll to change hotbar; click hotbar slots (+ touch ◀/▶)
 - [ ] Clearer pause menu labels and “unsaved changes” hint after edits
 
 ### 2.6 Save / settings polish
@@ -91,7 +91,7 @@ UI/UX should **feel similar to Growtopia-style sandboxes** (bright colors, pixel
 
 - [ ] **Hotbar** anchored along the **bottom** of the screen (keep Phase 1 1–7 slots; polish icons and selection highlight)
 - [ ] **Inventory / backpack** panel that opens/closes (key or button); drag or click to move items to/from hotbar
-- [ ] **Simple action buttons** (especially for touch): jump, punch/break, place/plant — clear labels/icons
+- [x] **Simple action buttons** (especially for touch): jump, punch/break, place/plant — clear labels/icons
 - [ ] **Pause / resume** menu polish (Esc): Resume, Save, Load, Settings — readable pixel-friendly styling
 - [ ] Overall look: bright palette, chunky pixel icons, large tap targets, short tooltips for new players
 - [ ] Connection-free single-player: no fake multiplayer chrome; focus on clarity of build/farm actions
@@ -190,7 +190,7 @@ Do **not** cut a release APK until most of these are true:
 - [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
 - [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
 - [ ] Save slots / settings polish (or at least stable single-slot save with version field)
-- [ ] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
+- [x] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
 - [ ] Headless/smoke + on-device smoke: plant Groveberry + Azureoot, craft Plank/Torch, save/load
 
 Internal debug APKs for testers are OK earlier; **Play-ready** waits for the gate.
@@ -317,7 +317,7 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 1. [x] Craft UI + recipes (Plank, Torch from Wood)
 2. [x] One new tile (Sand) + one new crop (Azureoot)
 3. [x] Place/break/harvest SFX + mute toggle
-4. Touch controls prototype
+4. [x] Touch controls prototype
 5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. Character customize (skin/hair/clothes/accessories) + walk in world
 7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI

@@ -4,6 +4,7 @@ extends CanvasLayer
 const RecipesData = preload("res://scripts/recipes.gd")
 
 @onready var inv: Node = get_parent().get_node("Inventory")
+@onready var player: Node2D = get_parent().get_node("Player")
 @onready var bar: HBoxContainer = $Root/Hotbar
 @onready var hint: Label = $Root/Hint
 @onready var title: Label = $Root/Title
@@ -37,6 +38,7 @@ func _ready() -> void:
 	$Root/Craft/Panel/VBox/BtnClose.pressed.connect(close_craft)
 	_rebuild_hotbar()
 	_rebuild_craft_list()
+	_setup_touch()
 
 func _on_inv_changed() -> void:
 	_rebuild_hotbar()
@@ -44,6 +46,18 @@ func _on_inv_changed() -> void:
 		_rebuild_craft_list()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP:
+			inv.select((inv.selected - 1 + inv.hotbar_len()) % inv.hotbar_len())
+			Sfx.play_ui()
+			get_viewport().set_input_as_handled()
+			return
+		if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN:
+			inv.select((inv.selected + 1) % inv.hotbar_len())
+			Sfx.play_ui()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventKey and event.pressed and not event.echo:
 		if event.keycode == KEY_C and not paused:
 			if craft_open:
@@ -109,7 +123,7 @@ func _emit_block_input() -> void:
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
 		c.queue_free()
-	for i in range(inv.slot_count()):
+	for i in range(inv.hotbar_len()):
 		var b := Button.new()
 		b.custom_minimum_size = Vector2(72, 40)
 		b.toggle_mode = true
@@ -175,3 +189,41 @@ func _refresh_mute_label() -> void:
 	if not has_node("Root/Pause/Panel/BtnMute"):
 		return
 	$Root/Pause/Panel/BtnMute.text = "Unmute SFX" if Sfx.muted else "Mute SFX"
+
+
+func _setup_touch() -> void:
+	if not has_node("Root/TouchPad"):
+		return
+	var left: Button = $Root/TouchPad/BtnLeft
+	var right: Button = $Root/TouchPad/BtnRight
+	var jump: Button = $Root/TouchPad/BtnJump
+	var punch: Button = $Root/TouchPad/BtnPunch
+	var place: Button = $Root/TouchPad/BtnPlace
+	var prev: Button = $Root/TouchPad/BtnHotPrev
+	var nextb: Button = $Root/TouchPad/BtnHotNext
+	# Hold-to-move
+	left.button_down.connect(func() -> void: player.set_touch_dir(-1.0))
+	left.button_up.connect(func() -> void: player.set_touch_dir(0.0))
+	right.button_down.connect(func() -> void: player.set_touch_dir(1.0))
+	right.button_up.connect(func() -> void: player.set_touch_dir(0.0))
+	jump.pressed.connect(func() -> void:
+		player.request_touch_jump()
+		Sfx.play_ui())
+	punch.pressed.connect(_touch_punch)
+	place.pressed.connect(_touch_place)
+	prev.pressed.connect(func() -> void:
+		inv.select((inv.selected - 1 + inv.hotbar_len()) % inv.hotbar_len())
+		Sfx.play_ui())
+	nextb.pressed.connect(func() -> void:
+		inv.select((inv.selected + 1) % inv.hotbar_len())
+		Sfx.play_ui())
+
+func _touch_punch() -> void:
+	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
+	player.touch_punch_at(ahead)
+	Sfx.play_ui()
+
+func _touch_place() -> void:
+	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
+	player.touch_place_at(ahead)
+	Sfx.play_ui()

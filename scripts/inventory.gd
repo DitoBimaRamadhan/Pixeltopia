@@ -9,13 +9,25 @@ var counts: Array[int] = []
 var selected: int = 0  ## hotbar index
 
 func _ready() -> void:
-	# Fist + starter materials (Wood for crafting Plank/Torch)
+	# Fist + starter materials (Wood for crafting Plank/Torch) + empty backpack slots
 	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.SEED_AZURE]
 	counts = [0, 64, 32, 16, 16, 32, 8, 24, 8]
+	# 16 backpack slots (empty)
+	for _i in range(16):
+		slots.append(-1)
+		counts.append(0)
 	changed.emit()
+
+const HOTBAR_LEN := 9  ## indices 0..8 (fist + 8); rest is backpack
 
 func slot_count() -> int:
 	return slots.size()
+
+func hotbar_len() -> int:
+	return mini(HOTBAR_LEN, slots.size())
+
+func backpack_start() -> int:
+	return hotbar_len()
 
 func get_selected_id() -> int:
 	if selected < 0 or selected >= slots.size():
@@ -78,19 +90,34 @@ func try_craft(recipe: Dictionary) -> bool:
 func add_item(id: int, n: int = 1) -> void:
 	if id < 0 or n <= 0:
 		return
+	# Stack onto existing stacks first (hotbar then backpack)
 	for i in range(1, slots.size()):
-		if slots[i] == id:
+		if slots[i] == id and counts[i] > 0:
 			counts[i] += n
 			changed.emit()
 			return
+	# Empty slot (hotbar then backpack)
 	for i in range(1, slots.size()):
-		if counts[i] <= 0:
+		if counts[i] <= 0 or slots[i] < 0:
 			slots[i] = id
 			counts[i] = n
 			changed.emit()
 			return
 	slots.append(id)
 	counts.append(n)
+	changed.emit()
+
+func swap_slots(a: int, b: int) -> void:
+	if a < 0 or b < 0 or a >= slots.size() or b >= slots.size():
+		return
+	if a == 0 or b == 0:
+		return  ## fist stays fist
+	var sid := slots[a]
+	var sc := counts[a]
+	slots[a] = slots[b]
+	counts[a] = counts[b]
+	slots[b] = sid
+	counts[b] = sc
 	changed.emit()
 
 func consume_selected(n: int = 1) -> bool:
