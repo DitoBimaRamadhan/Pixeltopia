@@ -79,8 +79,8 @@ for reference. Pixeltopia itself remains the Godot 4 game. See
 [`imported/IMPORT.md`](imported/IMPORT.md).
 
 
-## Latest (v1.4.0)
+## Latest (v1.3.0 / v1.4.0)
 
 - **Seed splicing:** combine two different seeds (Y / Splice) to discover Emberfruit, Moonpetal, Crystalroot
 - Farmable crops keep rarity-scaled gem & seed drops
-- APK: [Release v1.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.4.0) · [Direct APK](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.4.0/Pixeltopia.apk)
+- APK: [Release v1.3.0 / v1.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.3.0 / v1.4.0) · [Direct APK](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.3.0 / v1.4.0/Pixeltopia.apk)

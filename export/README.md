@@ -1,9 +1,8 @@
-# Pixeltopia Android APK
+# Pixeltopia APK exports
 
-**Latest:** [v1.4.0 Release](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.4.0)
+Latest multiplayer build: **v1.3.0**
 
-**Direct download:** [Pixeltopia.apk](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.4.0/Pixeltopia.apk)
+- Release: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.3.0
+- Direct APK: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.3.0/Pixeltopia.apk
 
-v1.4.0 — seed splicing discovery (combine two seeds → new farmable seed). Original Pixeltopia branding (not affiliated with Growtopia).
-
-Debug-signed APK (`com.pixeltopia.game`). Enable “Install unknown apps” on your device if needed.
+See MULTIPLAYER.md for shared-server setup.
