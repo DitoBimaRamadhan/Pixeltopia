@@ -64,7 +64,7 @@ static func catalog() -> Dictionary:
 		Tiles.Id.SEED: {
 			"id": Tiles.Id.SEED,
 			"name": "Groveberry Seed",
-			"description": "Plant on soil. Grows into Groveberry in ~8s.",
+			"description": "Plant on soil. Grows into Groveberry in ~8s. Splice with other seeds!",
 			"rarity": Rarity.COMMON,
 			"sell": 3,
 			"buy": 8,
@@ -130,7 +130,7 @@ static func catalog() -> Dictionary:
 		Tiles.Id.SEED_AZURE: {
 			"id": Tiles.Id.SEED_AZURE,
 			"name": "Azureoot Seed",
-			"description": "Cool-blue crop seed. Grows in ~12s.",
+			"description": "Cool-blue crop seed. Grows in ~12s. Great splice partner.",
 			"rarity": Rarity.UNCOMMON,
 			"sell": 5,
 			"buy": 14,
@@ -170,6 +170,72 @@ static func catalog() -> Dictionary:
 			"can_drop": true,
 			"farmable": false,
 			"seed_drop": -1,
+		},
+		Tiles.Id.SEED_EMBER: {
+			"id": Tiles.Id.SEED_EMBER,
+			"name": "Emberfruit Seed",
+			"description": "Warm splice discovery. Grows Emberfruit in ~15s. Farmable.",
+			"rarity": Rarity.RARE,
+			"sell": 10,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_EMBER,
+		},
+		Tiles.Id.CROP_EMBER: {
+			"id": Tiles.Id.CROP_EMBER,
+			"name": "Emberfruit",
+			"description": "Spicy orange harvest. Farmable — strong gem drops.",
+			"rarity": Rarity.RARE,
+			"sell": 18,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_EMBER,
+		},
+		Tiles.Id.SEED_MOON: {
+			"id": Tiles.Id.SEED_MOON,
+			"name": "Moonpetal Seed",
+			"description": "Night-bloom splice discovery. Grows in ~18s.",
+			"rarity": Rarity.RARE,
+			"sell": 14,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_MOON,
+		},
+		Tiles.Id.CROP_MOON: {
+			"id": Tiles.Id.CROP_MOON,
+			"name": "Moonpetal",
+			"description": "Silvery petals. Farmable — rich seed chance.",
+			"rarity": Rarity.RARE,
+			"sell": 22,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_MOON,
+		},
+		Tiles.Id.SEED_CRYSTAL: {
+			"id": Tiles.Id.SEED_CRYSTAL,
+			"name": "Crystalroot Seed",
+			"description": "Epic splice discovery. Grows Crystalroot in ~24s.",
+			"rarity": Rarity.EPIC,
+			"sell": 28,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_CRYSTAL,
+		},
+		Tiles.Id.CROP_CRYSTAL: {
+			"id": Tiles.Id.CROP_CRYSTAL,
+			"name": "Crystalroot",
+			"description": "Glowing crystal harvest. Farmable — best gem drops.",
+			"rarity": Rarity.EPIC,
+			"sell": 40,
+			"buy": -1,
+			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_CRYSTAL,
 		},
 	}
 
@@ -221,20 +287,44 @@ static func is_farmable(id: int) -> bool:
 static func seed_drop_for(id: int) -> int:
 	return int(get_info(id).get("seed_drop", -1))
 
-## Chance tables for break drops (0.0–1.0).
+## Chance tables for break drops (0.0–1.0). Rarer farmables drip slightly more.
 static func block_drop_chance(id: int) -> float:
 	return 0.92 if is_farmable(id) else 0.38
 
 static func seed_drop_chance(id: int) -> float:
-	return 0.42 if is_farmable(id) else 0.08
+	if not is_farmable(id):
+		return 0.08
+	match rarity(id):
+		Rarity.EPIC:
+			return 0.55
+		Rarity.RARE:
+			return 0.48
+		_:
+			return 0.42
 
 static func gem_drop_chance(id: int) -> float:
-	return 0.55 if is_farmable(id) else 0.12
+	if not is_farmable(id):
+		return 0.12
+	match rarity(id):
+		Rarity.EPIC:
+			return 0.75
+		Rarity.RARE:
+			return 0.65
+		_:
+			return 0.55
 
 static func gem_drop_amount(id: int, rng: RandomNumberGenerator) -> int:
-	if is_farmable(id):
-		return rng.randi_range(1, 3)
-	return 1
+	if not is_farmable(id):
+		return 1
+	match rarity(id):
+		Rarity.EPIC:
+			return rng.randi_range(3, 6)
+		Rarity.RARE:
+			return rng.randi_range(2, 4)
+		Rarity.UNCOMMON:
+			return rng.randi_range(1, 3)
+		_:
+			return rng.randi_range(1, 3)
 
 ## Items the Store sells (buy_price >= 0).
 static func store_stock() -> Array:
