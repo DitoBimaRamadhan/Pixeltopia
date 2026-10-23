@@ -5,8 +5,8 @@ export_presets.cfg
 
 # Android export artifacts / secrets
 export/*.keystore
-export/*.apk
 export/*.aab
-!export/README.md
-export_presets.cfg
 export/*.idsig
+export/*.apk
+!export/Pixeltopia.apk
+!export/README.md
