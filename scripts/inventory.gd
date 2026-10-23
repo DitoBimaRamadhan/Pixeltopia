@@ -1,5 +1,5 @@
 extends Node
-## Minimal hotbar inventory for Pixeltopia Phase 1.
+## Minimal hotbar inventory for Pixeltopia Phase 1/2.
 
 signal changed
 
@@ -9,9 +9,9 @@ var counts: Array[int] = []
 var selected: int = 0  ## hotbar index
 
 func _ready() -> void:
-	# Fist + starter materials (incl. Wood + Torch)
+	# Fist + starter materials (Wood for crafting Plank/Torch)
 	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH]
-	counts = [0, 64, 32, 16, 16, 32, 16]
+	counts = [0, 64, 32, 16, 16, 32, 8]
 	changed.emit()
 
 func slot_count() -> int:
@@ -30,6 +30,50 @@ func select(i: int) -> void:
 		return
 	selected = i
 	changed.emit()
+
+func count_of(id: int) -> int:
+	if id < 0:
+		return 0
+	var total := 0
+	for i in range(1, slots.size()):
+		if slots[i] == id:
+			total += counts[i]
+	return total
+
+func can_afford(ingredients: Array) -> bool:
+	for ing in ingredients:
+		var need_id: int = int(ing["id"])
+		var need_n: int = int(ing["count"])
+		if count_of(need_id) < need_n:
+			return false
+	return true
+
+func consume_item(id: int, n: int = 1) -> bool:
+	if id < 0 or n <= 0:
+		return false
+	if count_of(id) < n:
+		return false
+	var left := n
+	for i in range(1, slots.size()):
+		if left <= 0:
+			break
+		if slots[i] != id or counts[i] <= 0:
+			continue
+		var take: int = mini(counts[i], left)
+		counts[i] -= take
+		left -= take
+	changed.emit()
+	return left == 0
+
+func try_craft(recipe: Dictionary) -> bool:
+	var ingredients: Array = recipe.get("ingredients", [])
+	if not can_afford(ingredients):
+		return false
+	for ing in ingredients:
+		if not consume_item(int(ing["id"]), int(ing["count"])):
+			return false
+	add_item(int(recipe["result"]), int(recipe.get("result_count", 1)))
+	return true
 
 func add_item(id: int, n: int = 1) -> void:
 	if id < 0 or n <= 0:

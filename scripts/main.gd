@@ -9,7 +9,7 @@ const SAVE_PATH := "user://pixeltopia_save.json"
 @onready var hud: CanvasLayer = $HUD
 
 func _ready() -> void:
-	DisplayServer.window_set_title("Pixeltopia — Phase 1 prototype")
+	DisplayServer.window_set_title("Pixeltopia — Phase 1+2 prototype")
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)

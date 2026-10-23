@@ -9,10 +9,11 @@ enum Id {
 	DIRT = 1,
 	GRASS = 2,
 	STONE = 3,
-	SEED = 4,       ## planted seed (growing)
-	CROP = 5,       ## mature plant ready to harvest
+	SEED = 4,       ## Groveberry seed (growing)
+	CROP = 5,       ## Groveberry mature
 	WOOD = 6,       ## placeable wood block
 	TORCH = 7,      ## decorative light (non-solid)
+	PLANK = 8,      ## crafted wood plank (solid)
 }
 
 const NAMES := {
@@ -24,11 +25,12 @@ const NAMES := {
 	Id.CROP: "Groveberry",
 	Id.WOOD: "Wood",
 	Id.TORCH: "Torch",
+	Id.PLANK: "Plank",
 }
 
 ## Solid for collision?
 static func is_solid(id: int) -> bool:
-	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD
+	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD or id == Id.PLANK
 
 ## Can plant a seed on top of this block (into air cell above)?
 static func is_soil(id: int) -> bool:
@@ -36,7 +38,8 @@ static func is_soil(id: int) -> bool:
 
 ## Can be placed into an empty cell from inventory?
 static func is_placeable(id: int) -> bool:
-	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD or id == Id.TORCH or id == Id.SEED
+	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
+		or id == Id.TORCH or id == Id.SEED or id == Id.PLANK
 
 static func color(id: int) -> Color:
 	match id:
@@ -54,5 +57,7 @@ static func color(id: int) -> Color:
 			return Color(0.62, 0.42, 0.22)
 		Id.TORCH:
 			return Color(0.95, 0.75, 0.25)
+		Id.PLANK:
+			return Color(0.78, 0.58, 0.32)
 		_:
 			return Color(0, 0, 0, 0)

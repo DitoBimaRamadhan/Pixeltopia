@@ -178,9 +178,14 @@ func _draw() -> void:
 			draw_rect(r, c)
 			draw_rect(r, c.darkened(0.25), false, 1.0)
 			if id == Tiles.Id.WOOD:
-				# plank lines
+				# wood grain
 				draw_line(r.position + Vector2(0, 10), r.position + Vector2(Tiles.SIZE, 10), c.darkened(0.35), 1.0)
 				draw_line(r.position + Vector2(0, 22), r.position + Vector2(Tiles.SIZE, 22), c.darkened(0.35), 1.0)
+			elif id == Tiles.Id.PLANK:
+				# finished plank lines
+				draw_line(r.position + Vector2(0, 8), r.position + Vector2(Tiles.SIZE, 8), c.darkened(0.3), 1.0)
+				draw_line(r.position + Vector2(0, 16), r.position + Vector2(Tiles.SIZE, 16), c.darkened(0.3), 1.0)
+				draw_line(r.position + Vector2(0, 24), r.position + Vector2(Tiles.SIZE, 24), c.darkened(0.3), 1.0)
 			elif id == Tiles.Id.SEED:
 				draw_rect(Rect2(r.position + Vector2(12, 16), Vector2(8, 16)), Color(0.2, 0.5, 0.2))
 			elif id == Tiles.Id.CROP:
