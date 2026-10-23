@@ -1,8 +1,6 @@
-# Pixeltopia APK exports
+# Pixeltopia Android APK
 
-Latest multiplayer build: **v1.3.0**
+Latest build: **v1.5.0** (stability pass).
 
-- Release: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.3.0
-- Direct APK: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.3.0/Pixeltopia.apk
-
-See MULTIPLAYER.md for shared-server setup.
+Download from GitHub Releases:
+https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.5.0

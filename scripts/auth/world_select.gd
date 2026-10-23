@@ -78,6 +78,8 @@ func _selected_name() -> String:
 
 func _on_join() -> void:
 	var wname := _selected_name()
+	if typeof(Session.selected_server) != TYPE_DICTIONARY or Session.selected_server.is_empty():
+		Session.selected_server = {"id": "offline" if Session.offline_mode else "local", "name": "Local"}
 	Session.selected_server["world"] = wname
 	Session.set_selected_server(Session.selected_server)
 	if Session.offline_mode:
@@ -95,6 +97,8 @@ func _on_create() -> void:
 	if wname.length() < 2:
 		status_lbl.text = "Ketik nama dunia (min 2)."
 		return
+	if typeof(Session.selected_server) != TYPE_DICTIONARY or Session.selected_server.is_empty():
+		Session.selected_server = {"id": "offline" if Session.offline_mode else "local", "name": "Local"}
 	Session.selected_server["world"] = wname
 	Session.set_selected_server(Session.selected_server)
 	if Session.offline_mode:

@@ -19,7 +19,7 @@ var _trade: Dictionary = {}
 func _ready() -> void:
 	var _who := Session.username if Session and Session.username else "player"
 	var _mode := "offline" if Session and Session.offline_mode else "online"
-	DisplayServer.window_set_title("Pixeltopia — v1.3 (%s / %s)" % [_who, _mode])
+	DisplayServer.window_set_title("Pixeltopia — v1.5 (%s / %s)" % [_who, _mode])
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)

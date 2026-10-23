@@ -542,7 +542,7 @@ func _rebuild_backpack() -> void:
 	for i in range(1, inv.hotbar_len()):
 		var id: int = inv.slots[i]
 		var n: int = inv.counts[i]
-		var picked := (i == _backpack_pick) or (i == inv.selected)
+		var picked: bool = bool(i == _backpack_pick) or bool(i == int(inv.selected))
 		var cell := ItemIcon.make_cell(id if n > 0 else -1, n, picked)
 		var idx2 := i
 		cell.gui_input.connect(func(ev: InputEvent) -> void:
@@ -553,7 +553,7 @@ func _rebuild_backpack() -> void:
 	for i in range(inv.backpack_start(), inv.slot_count()):
 		var idb: int = inv.slots[i]
 		var nb: int = inv.counts[i]
-		var picked_b := (i == _backpack_pick)
+		var picked_b: bool = bool(i == _backpack_pick)
 		var cell_b := ItemIcon.make_cell(idb if nb > 0 else -1, nb, picked_b)
 		var idxb := i
 		cell_b.gui_input.connect(func(ev: InputEvent) -> void:
@@ -650,7 +650,7 @@ func _backpack_use() -> void:
 func _backpack_drop_one() -> void:
 	if _backpack_pick <= 0:
 		return
-	var prev_sel := inv.selected
+	var prev_sel: int = int(inv.selected)
 	inv.select(_backpack_pick)
 	if player.has_method("touch_drop"):
 		player.touch_drop()
