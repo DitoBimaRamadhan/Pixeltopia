@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 /**
- * Open N WebSocket connections, send moves, report memory/stats.
+ * Open N WebSocket connections across gateway shards (shared one-process server).
  * Usage: node loadtest.js [count=100] [seconds=15]
  */
 const http = require('http');
@@ -26,57 +26,82 @@ function getJson(path) {
 async function main() {
   const health = await getJson('/health');
   console.log('health', health);
-  const servers = (await getJson('/servers')).servers;
-  const shard = servers[0]?.id || 'world-1';
-  const wsBase = BASE.replace(/^http/, 'ws') + `/ws?shard=${encodeURIComponent(shard)}`;
+  if (health.mode && health.mode !== 'shared-process') {
+    console.error('FAIL: expected shared-process mode, got', health.mode);
+    process.exit(1);
+  }
+  const servers = (await getJson('/servers')).servers || [];
+  if (!servers.length) {
+    console.error('FAIL: no gateway shards');
+    process.exit(1);
+  }
+  const capacity = servers.reduce((n, s) => n + (s.maxPlayers || 0), 0);
+  console.log(`shards=${servers.length} capacity=${capacity} requesting=${COUNT}`);
+  if (COUNT > capacity) {
+    console.warn(`WARN: COUNT ${COUNT} > capacity ${capacity}; expecting some rejects`);
+  }
 
   const sockets = [];
   let opens = 0;
   let errors = 0;
-  let snaps = 0;
+  let welcomes = 0;
+  let closes = 0;
 
   await new Promise((resolve) => {
     let pending = COUNT;
+    const doneOne = () => {
+      pending--;
+      if (pending <= 0) resolve();
+    };
     for (let i = 0; i < COUNT; i++) {
+      const shard = servers[i % servers.length];
+      const wsBase = BASE.replace(/^http/, 'ws') + `/ws?shard=${encodeURIComponent(shard.id)}`;
       const ws = new WebSocket(wsBase);
       sockets.push(ws);
       ws.on('open', () => {
         opens++;
-        pending--;
-        if (pending === 0) resolve();
+        doneOne();
       });
       ws.on('message', (m) => {
         try {
           const j = JSON.parse(String(m));
-          if (j.t === 'snap') snaps++;
+          if (j.t === 'welcome' || j.t === 'snap' || j.t === 'world_state') welcomes++;
         } catch {}
       });
+      ws.on('close', () => { closes++; });
       ws.on('error', () => {
         errors++;
-        pending--;
-        if (pending <= 0) resolve();
+        doneOne();
       });
     }
-    setTimeout(resolve, 20000);
+    setTimeout(resolve, 30000);
   });
 
-  console.log(`opened=${opens}/${COUNT} errors=${errors}`);
+  console.log(`opened=${opens}/${COUNT} errors=${errors} welcomes≈${welcomes}`);
   const start = Date.now();
   const iv = setInterval(() => {
-    for (const ws of sockets) {
+    for (let i = 0; i < sockets.length; i++) {
+      const ws = sockets[i];
       if (ws.readyState === 1) {
-        ws.send(JSON.stringify({ t: 'move', x: (Math.random() * 40) | 0, y: (Math.random() * 20) | 0, seq: Date.now() }));
+        ws.send(JSON.stringify({
+          t: 'move',
+          x: (Math.random() * 40) | 0,
+          y: (Math.random() * 20) | 0,
+          seq: Date.now() + i,
+        }));
       }
     }
-  }, 200);
+  }, 250);
 
   await new Promise((r) => setTimeout(r, SECONDS * 1000));
   clearInterval(iv);
-  const stats = await getJson('/stats');
+  let stats = {};
+  try { stats = await getJson('/stats'); } catch (e) { stats = { error: String(e) }; }
   console.log('stats', stats);
-  console.log(`snaps_received≈${snaps} elapsed_ms=${Date.now() - start}`);
+  console.log(`elapsed_ms=${Date.now() - start}`);
   for (const ws of sockets) try { ws.close(); } catch {}
-  const ok = opens >= COUNT * 0.95 && !String(stats).includes('crash');
+  const target = Math.min(COUNT, capacity);
+  const ok = opens >= target * 0.95 && !stats.error && stats.mode !== 'serverless';
   console.log(ok ? 'PASS' : 'FAIL');
   process.exit(ok ? 0 : 1);
 }

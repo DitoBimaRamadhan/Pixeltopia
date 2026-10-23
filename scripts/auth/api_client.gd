@@ -19,6 +19,12 @@ func login(base: String, username: String, password: String) -> void:
 	_post(base + "/login", {"username": username, "password": password})
 
 func list_servers(base: String, token: String = "") -> void:
+	if _http == null:
+		request_finished.emit(false, {}, "HTTPRequest belum siap.")
+		return
+	if _busy:
+		request_finished.emit(false, {}, "Masih menunggu respons sebelumnya.")
+		return
 	var headers: PackedStringArray = ["Accept: application/json"]
 	if not token.is_empty():
 		headers.append("Authorization: Bearer %s" % token)
@@ -29,6 +35,12 @@ func list_servers(base: String, token: String = "") -> void:
 		request_finished.emit(false, {}, "Tidak bisa menghubungi server (kode %s)." % err)
 
 func _post(url: String, body: Dictionary) -> void:
+	if _http == null:
+		request_finished.emit(false, {}, "HTTPRequest belum siap.")
+		return
+	if _busy:
+		request_finished.emit(false, {}, "Masih menunggu respons sebelumnya.")
+		return
 	_busy = true
 	var headers := PackedStringArray([
 		"Content-Type: application/json",

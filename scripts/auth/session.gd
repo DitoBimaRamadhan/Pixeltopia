@@ -79,3 +79,5 @@ func _load() -> void:
 	var parsed: Variant = JSON.parse_string(sj)
 	if typeof(parsed) == TYPE_DICTIONARY:
 		selected_server = parsed
+	else:
+		selected_server = {}
