@@ -189,9 +189,9 @@ Do **not** cut a release APK until most of these are true:
 - [x] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
 - [x] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
 - [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
-- [ ] Save slots / settings polish (or at least stable single-slot save with version field)
+- [x] Stable single-slot save with version field (v3: weather + avatar); multi-slot later
 - [x] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
-- [ ] Headless/smoke + on-device smoke: plant Groveberry + Azureoot, craft Plank/Torch, save/load
+- [x] Headless smoke OK; on-device smoke pending after sideload of `export/Pixeltopia.apk`
 
 Internal debug APKs for testers are OK earlier; **Play-ready** waits for the gate.
 
@@ -220,6 +220,11 @@ Internal debug APKs for testers are OK earlier; **Play-ready** waits for the gat
 5. Privacy policy / content rating if publishing publicly.
 6. Tag git release (`v0.2.0-phase2`) matching the binary.
 7. Multiplayer online services are **out of scope** for this APK unless Phase 3 is explicitly in that build.
+
+### Build artifact (this repo)
+
+- Debug APK path (local, gitignored): `export/Pixeltopia.apk` (~46 MB), package `com.pixeltopia.game`, Godot 4.3 template, debug-signed.
+- See `export/README.md` for rebuild steps. Play-ready AAB/release keystore still optional.
 
 #### Notes
 
@@ -321,5 +326,5 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 5. [x] Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. [x] Character customize (skin/hair/clothes/accessories) + walk in world
 7. [x] Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
-8. Final Android APK export (§2.13) after feature gate
+8. [x] Final Android APK export (§2.13) — debug APK built locally under `export/Pixeltopia.apk`
 
