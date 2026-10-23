@@ -1,19 +1,15 @@
-# Pixeltopia Android export
+# Export artifacts
 
-Godot **4.3** debug APK (`com.pixeltopia.game`).
+- **`Pixeltopia.apk`** — Godot 4.3 Android **debug** build (version **1.0.0**).
+- Pixeltopia Store (buy with gems), farmable break drops, Quill quests, auth + shards, circular UI.
+- Release: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.0.0
+- Direct APK: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.0.0/Pixeltopia.apk
 
-## Downloads
-
-- **v0.8.0 (auth + shards):** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.8.0
-  - Direct: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.8.0/Pixeltopia.apk
-- Also on `main`: https://github.com/DitoBimaRamadhan/Pixeltopia/raw/main/export/Pixeltopia.apk
-
-Signed with the standard Android **debug** keystore (not for Play Store).
-
-## Local rebuild
+Keystores (`*.keystore`) are gitignored. Rebuild:
 
 ```bash
-godot --headless --path . --export-debug "Android" export/Pixeltopia.apk
+export JAVA_HOME=/workspace/tools/jdk/jdk-17.0.21+9
+export PATH="$JAVA_HOME/bin:$PATH"
+/workspace/tools/Godot_v4.3-stable_linux.x86_64 --headless --path . \
+  --export-debug Android export/Pixeltopia.apk
 ```
-
-See `server/README.md` and `HOSTING.md` for the Node auth/shard backend.
