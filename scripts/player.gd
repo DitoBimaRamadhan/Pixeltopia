@@ -24,6 +24,7 @@ var _touch_dir: float = 0.0
 var _touch_jump: bool = false
 var _shake_t: float = 0.0
 var _pickup_cd: float = 0.0
+var net: Node = null  ## GameSocket when online
 
 signal weather_machine_used
 signal shop_used
@@ -57,6 +58,12 @@ func _spawn_default() -> void:
 func apply_save_pos(pos: Vector2) -> void:
 	global_position = pos
 	velocity = Vector2.ZERO
+
+func set_net(n: Node) -> void:
+	net = n
+
+func _net_online() -> bool:
+	return net != null and net.has_method("is_online") and net.is_online()
 
 func _physics_process(delta: float) -> void:
 	if paused:
@@ -200,6 +207,11 @@ func _punch_or_use(t: Vector2i) -> void:
 			Sfx.play_ui()
 		return
 	if Tiles.is_crop(id):
+		if _net_online():
+			net.send_punch(t.x, t.y)
+			Sfx.play_harvest()
+			crops_harvested.emit(1)
+			return
 		var hr: Dictionary = world.try_harvest(t.x, t.y, true, inv)
 		if int(hr.get("block", -1)) >= 0:
 			_announce_break_rewards(hr)
@@ -208,6 +220,10 @@ func _punch_or_use(t: Vector2i) -> void:
 			world_edited.emit()
 		return
 	if id != Tiles.Id.AIR:
+		if _net_online():
+			net.send_punch(t.x, t.y)
+			Sfx.play_break()
+			return
 		var br: Dictionary = world.break_tile(t.x, t.y, true, inv)
 		_announce_break_rewards(br)
 		Sfx.play_break()
@@ -241,6 +257,17 @@ func _place(t: Vector2i) -> void:
 		return
 	if Tiles.is_usable_item(id):
 		## Usable items are applied via punch, not placed
+		return
+	if _net_online():
+		net.send_place(t.x, t.y, id)
+		inv.consume_selected(1)
+		Sfx.play_place()
+		if Tiles.is_seed(id):
+			var mainn := get_parent()
+			if mainn.has_method("notify_planted"):
+				mainn.notify_planted()
+		if net.has_method("sync_inventory"):
+			net.sync_inventory(inv)
 		return
 	if world.place_tile(t.x, t.y, id):
 		inv.consume_selected(1)
