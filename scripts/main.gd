@@ -1,5 +1,5 @@
 extends Node2D
-## Pixeltopia Phase 1 — single-player block world + planting.
+## Pixeltopia — single-player sandbox + shop/quests/drops.
 
 const SAVE_PATH := "user://pixeltopia_save.json"
 
@@ -8,19 +8,40 @@ const SAVE_PATH := "user://pixeltopia_save.json"
 @onready var player: Node2D = $Player
 @onready var hud: CanvasLayer = $HUD
 @onready var weather: CanvasModulate = $Weather
+@onready var quests: Node = $QuestLog
+
+var dirty: bool = false
 
 func _ready() -> void:
-	DisplayServer.window_set_title("Pixeltopia — Phase 1+2 prototype")
+	DisplayServer.window_set_title("Pixeltopia — v0.4")
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)
+	if player.has_signal("world_edited"):
+		player.world_edited.connect(_mark_dirty)
+	if player.has_signal("crops_harvested"):
+		player.crops_harvested.connect(_on_crops_harvested)
+	world.world_changed.connect(_mark_dirty)
+	inv.changed.connect(_mark_dirty)
+	hud.bind_main(self)
+
+func _mark_dirty() -> void:
+	dirty = true
+	if hud.has_method("set_dirty"):
+		hud.set_dirty(true)
+
+func _on_crops_harvested(n: int) -> void:
+	quests.report("harvest_crops", n)
+
+func notify_planted() -> void:
+	quests.report("plant_seeds", 1)
 
 func _on_pause(paused: bool) -> void:
 	player.paused = paused
 
 func save_game() -> void:
 	var data := {
-		"version": 3,
+		"version": 4,
 		"world": world.to_save(),
 		"inventory": inv.to_save(),
 		"player": {
@@ -29,6 +50,7 @@ func save_game() -> void:
 			"avatar": player.look_to_save(),
 		},
 		"weather": weather.to_save(),
+		"quests": quests.to_save(),
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -36,7 +58,10 @@ func save_game() -> void:
 		return
 	f.store_string(JSON.stringify(data))
 	f.close()
-	hud.show_status("Saved to user://pixeltopia_save.json")
+	dirty = false
+	if hud.has_method("set_dirty"):
+		hud.set_dirty(false)
+	hud.show_status("Saved (v4) — gems, drops, quests included.")
 
 func load_game() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -63,4 +88,9 @@ func load_game() -> void:
 			player.set_look_from_dict(p["avatar"])
 	if data.has("weather"):
 		weather.from_save(data["weather"])
+	if data.has("quests"):
+		quests.from_save(data["quests"])
+	dirty = false
+	if hud.has_method("set_dirty"):
+		hud.set_dirty(false)
 	hud.show_status("Loaded save.")
