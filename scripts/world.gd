@@ -71,6 +71,8 @@ func _generate() -> void:
 			grid[idx(sx - 6, y)] = Tiles.Id.WOOD
 	if in_bounds(sx - 5, gy - 1):
 		grid[idx(sx - 5, gy - 1)] = Tiles.Id.TORCH
+	if in_bounds(sx + 3, gy - 1):
+		grid[idx(sx + 3, gy - 1)] = Tiles.Id.WEATHER_MACHINE
 	queue_redraw()
 
 func world_to_tile(pos: Vector2) -> Vector2i:
@@ -208,3 +210,9 @@ func _draw() -> void:
 				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.4, 0.55, 1.0))
 				draw_circle(r.get_center() + Vector2(-4, -6), 3.0, Color(0.75, 0.9, 1.0))
 				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.2, 0.35, 0.55))
+			elif id == Tiles.Id.WEATHER_MACHINE:
+				# original console: base + sun dial (non-solid)
+				draw_rect(Rect2(r.position + Vector2(4, 8), Vector2(24, 24)), Color(0.25, 0.35, 0.5))
+				draw_rect(Rect2(r.position + Vector2(6, 10), Vector2(20, 14)), Color(0.4, 0.75, 1.0))
+				draw_circle(r.position + Vector2(16, 17), 5.0, Color(1.0, 0.9, 0.35))
+				draw_rect(Rect2(r.position + Vector2(10, 26), Vector2(12, 4)), Color(0.7, 0.75, 0.85))

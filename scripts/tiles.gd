@@ -17,6 +17,7 @@ enum Id {
 	SAND = 9,       ## soft sand block (solid)
 	SEED_AZURE = 10, ## Azureoot seed (growing)
 	CROP_AZURE = 11, ## Azureoot mature
+	WEATHER_MACHINE = 12, ## placeable sun-weather console (non-solid)
 }
 
 const NAMES := {
@@ -32,6 +33,7 @@ const NAMES := {
 	Id.SAND: "Sand",
 	Id.SEED_AZURE: "Azureoot Seed",
 	Id.CROP_AZURE: "Azureoot",
+	Id.WEATHER_MACHINE: "Weather Machine",
 }
 
 static func is_solid(id: int) -> bool:
@@ -44,10 +46,10 @@ static func is_soil(id: int) -> bool:
 static func is_placeable(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
 		or id == Id.TORCH or id == Id.SEED or id == Id.PLANK or id == Id.SAND \
-		or id == Id.SEED_AZURE
+		or id == Id.SEED_AZURE or id == Id.WEATHER_MACHINE
 
 static func is_seed(id: int) -> bool:
-	return id == Id.SEED or id == Id.SEED_AZURE
+	return id == Id.SEED or id == Id.SEED_AZURE or id == Id.WEATHER_MACHINE
 
 static func is_crop(id: int) -> bool:
 	return id == Id.CROP or id == Id.CROP_AZURE
@@ -93,5 +95,7 @@ static func color(id: int) -> Color:
 			return Color(0.40, 0.70, 0.95)
 		Id.CROP_AZURE:
 			return Color(0.35, 0.55, 1.0)
+		Id.WEATHER_MACHINE:
+			return Color(0.55, 0.85, 1.0)
 		_:
 			return Color(0, 0, 0, 0)

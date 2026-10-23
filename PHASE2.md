@@ -67,12 +67,12 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 
 Lighting and atmosphere for Phase 2. **Sun only** as the primary light source — do **not** add moon or stars as light sources (they may appear as decorative sky art later, but they must not illuminate the world).
 
-- [ ] **Day periods (sun-driven):** Morning, Noon/Day, Afternoon/Evening, Night — each changes sky tint, ambient brightness, and how far the sun lights the scene
-- [ ] **Atmospheric presets (weather moods):** Aurora, City/Overcast (tengah kota), plus similar freeform moods (e.g. foggy, clear, stormy tint) that adjust color/fog without adding non-sun light sources
-- [ ] **Weather machine (in-world):** Placeable console/machine the player can interact with to **manually** switch day period and weather mood (not only auto time-of-day). Treat it like a world device (interact key / click), with a small UI listing available presets
-- [ ] Optional auto cycle: slow Morning → Night progression when the machine is set to “auto”; manual overrides always win until reset
-- [ ] Torch and other local lights still work at night; global fill light remains sun-based only
-- [ ] Persist current weather / period in save JSON (with a version-friendly field)
+- [x] **Day periods (sun-driven):** Morning, Noon/Day, Afternoon/Evening, Night — each changes sky tint, ambient brightness, and how far the sun lights the scene
+- [x] **Atmospheric presets (weather moods):** Aurora, City/Overcast (tengah kota), plus Clear — color wash without non-sun light sources
+- [x] **Weather machine (in-world):** Placeable console (craftable) — punch/use opens UI; Morning/Noon/Afternoon/Night + Clear/Aurora/City
+- [x] Optional auto cycle: slow Morning → Night progression when the machine is set to “auto”; manual overrides always win until reset
+- [x] Torch and other local lights still work at night; global fill light remains sun-based only (CanvasModulate)
+- [x] Persist current weather / period in save JSON (version 2 field)
 
 
 ### 2.9 Characters (avatar)
@@ -185,7 +185,7 @@ Do **not** cut a release APK until most of these are true:
 
 - [x] Craft UI + recipes (done)
 - [x] Extra tile + second crop (Sand, Azureoot — done)
-- [ ] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
+- [x] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
 - [ ] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
 - [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
 - [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
@@ -277,7 +277,7 @@ Public research only (no account login). Official site `growtopia.com` returned 
 | Sandbox break/place | Yes (baseline) | Done |
 | Farming / multiple crops | Yes §2.1 | Partial (2 crops) |
 | Craft / combine | Yes §2.2 | Done (craft; not full splice graph) |
-| Weather machine | Yes §2.8 | Planned |
+| Weather machine | Yes §2.8 | Done |
 | Avatar cosmetics | Yes §2.9 | Planned |
 | Bottom hotbar / backpack UI | Yes §2.10 | Partial (hotbar; backpack open) |
 | Audio / touch / save slots | Yes §2.4–2.6 | Planned |
@@ -318,7 +318,7 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 2. [x] One new tile (Sand) + one new crop (Azureoot)
 3. [x] Place/break/harvest SFX + mute toggle
 4. [x] Touch controls prototype
-5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
+5. [x] Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. Character customize (skin/hair/clothes/accessories) + walk in world
 7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
 8. Final Android APK export (§2.13) after feature gate

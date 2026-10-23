@@ -7,6 +7,7 @@ const SAVE_PATH := "user://pixeltopia_save.json"
 @onready var inv: Node = $Inventory
 @onready var player: Node2D = $Player
 @onready var hud: CanvasLayer = $HUD
+@onready var weather: CanvasModulate = $Weather
 
 func _ready() -> void:
 	DisplayServer.window_set_title("Pixeltopia — Phase 1+2 prototype")
@@ -19,10 +20,11 @@ func _on_pause(paused: bool) -> void:
 
 func save_game() -> void:
 	var data := {
-		"version": 1,
+		"version": 2,
 		"world": world.to_save(),
 		"inventory": inv.to_save(),
 		"player": {"x": player.global_position.x, "y": player.global_position.y},
+		"weather": weather.to_save(),
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -53,4 +55,6 @@ func load_game() -> void:
 	if data.has("player"):
 		var p: Dictionary = data["player"]
 		player.apply_save_pos(Vector2(float(p.get("x", 0)), float(p.get("y", 0))))
+	if data.has("weather"):
+		weather.from_save(data["weather"])
 	hud.show_status("Loaded save.")

@@ -95,8 +95,14 @@ func _spawn_float(text: String, color: Color = Color(1.0, 0.92, 0.45)) -> void:
 	ft.global_position = global_position + Vector2(0, -24)
 	ft.call("setup", text, color)
 
+signal weather_machine_used
+
 func _punch_or_use(t: Vector2i) -> void:
 	var id: int = world.get_tile(t.x, t.y)
+	if id == Tiles.Id.WEATHER_MACHINE:
+		weather_machine_used.emit()
+		Sfx.play_ui()
+		return
 	if Tiles.is_crop(id):
 		var drop: int = world.try_harvest(t.x, t.y)
 		if drop >= 0:

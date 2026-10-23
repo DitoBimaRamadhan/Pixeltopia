@@ -21,4 +21,15 @@ static func all() -> Array:
 			"result_count": 2,
 			"ingredients": [{"id": Tiles.Id.WOOD, "count": 1}],
 		},
+		{
+			"id": "weather_machine",
+			"name": "Weather Machine",
+			"blurb": "4 Plank + 2 Torch → sun console",
+			"result": Tiles.Id.WEATHER_MACHINE,
+			"result_count": 1,
+			"ingredients": [
+				{"id": Tiles.Id.PLANK, "count": 4},
+				{"id": Tiles.Id.TORCH, "count": 2},
+			],
+		},
 	]

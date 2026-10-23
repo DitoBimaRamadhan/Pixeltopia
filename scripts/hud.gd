@@ -5,6 +5,7 @@ const RecipesData = preload("res://scripts/recipes.gd")
 
 @onready var inv: Node = get_parent().get_node("Inventory")
 @onready var player: Node2D = get_parent().get_node("Player")
+@onready var weather: CanvasModulate = get_parent().get_node("Weather")
 @onready var bar: HBoxContainer = $Root/Hotbar
 @onready var hint: Label = $Root/Hint
 @onready var title: Label = $Root/Title
@@ -17,6 +18,8 @@ const RecipesData = preload("res://scripts/recipes.gd")
 
 var paused: bool = false
 var craft_open: bool = false
+var weather_open: bool = false
+var backpack_open: bool = false
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -39,6 +42,9 @@ func _ready() -> void:
 	_rebuild_hotbar()
 	_rebuild_craft_list()
 	_setup_touch()
+	_setup_weather_ui()
+	if player.has_signal("weather_machine_used"):
+		player.weather_machine_used.connect(open_weather)
 
 func _on_inv_changed() -> void:
 	_rebuild_hotbar()
@@ -69,6 +75,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.keycode == KEY_ESCAPE:
 			if craft_open:
 				close_craft()
+			elif weather_open:
+				close_weather()
+			elif backpack_open:
+				close_backpack()
 			else:
 				set_paused(not paused)
 			get_viewport().set_input_as_handled()
@@ -118,7 +128,7 @@ func _set_craft_visible(v: bool) -> void:
 	craft_panel.visible = v
 
 func _emit_block_input() -> void:
-	pause_changed.emit(paused or craft_open)
+	pause_changed.emit(paused or craft_open or weather_open or backpack_open)
 
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
@@ -227,3 +237,75 @@ func _touch_place() -> void:
 	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
 	player.touch_place_at(ahead)
 	Sfx.play_ui()
+
+
+func _setup_weather_ui() -> void:
+	if not has_node("Root/WeatherUI"):
+		return
+	$Root/WeatherUI.visible = false
+	$Root/WeatherUI/Panel/VBox/BtnClose.pressed.connect(close_weather)
+	$Root/WeatherUI/Panel/VBox/BtnAuto.pressed.connect(_toggle_weather_auto)
+	var period_row: HBoxContainer = $Root/WeatherUI/Panel/VBox/PeriodRow
+	var mood_row: HBoxContainer = $Root/WeatherUI/Panel/VBox/MoodRow
+	for c in period_row.get_children():
+		c.queue_free()
+	for c in mood_row.get_children():
+		c.queue_free()
+	var periods := ["Morning", "Noon", "Afternoon", "Night"]
+	for i in range(periods.size()):
+		var b := Button.new()
+		b.text = periods[i]
+		b.custom_minimum_size = Vector2(96, 32)
+		var pi := i
+		b.pressed.connect(func() -> void:
+			weather.set_period(pi)
+			_refresh_weather_status()
+			Sfx.play_ui())
+		period_row.add_child(b)
+	var moods := ["Clear", "Aurora", "City"]
+	for i in range(moods.size()):
+		var b2 := Button.new()
+		b2.text = moods[i]
+		b2.custom_minimum_size = Vector2(110, 32)
+		var mi := i
+		b2.pressed.connect(func() -> void:
+			weather.set_mood(mi)
+			_refresh_weather_status()
+			Sfx.play_ui())
+		mood_row.add_child(b2)
+	weather.changed.connect(_refresh_weather_status)
+
+func open_weather() -> void:
+	if paused:
+		return
+	if craft_open:
+		close_craft()
+	weather_open = true
+	if has_node("Root/WeatherUI"):
+		$Root/WeatherUI.visible = true
+	_refresh_weather_status()
+	Sfx.play_ui()
+	_emit_block_input()
+
+func close_weather() -> void:
+	weather_open = false
+	if has_node("Root/WeatherUI"):
+		$Root/WeatherUI.visible = false
+	_emit_block_input()
+
+func _toggle_weather_auto() -> void:
+	weather.set_auto(not weather.auto_cycle)
+	_refresh_weather_status()
+	Sfx.play_ui()
+
+func _refresh_weather_status() -> void:
+	if not has_node("Root/WeatherUI"):
+		return
+	$Root/WeatherUI/Panel/VBox/Status.text = weather.label() + " — sun is the only light source"
+	$Root/WeatherUI/Panel/VBox/BtnAuto.text = "Auto cycle: On" if weather.auto_cycle else "Auto cycle: Off"
+
+func close_backpack() -> void:
+	backpack_open = false
+	if has_node("Root/Backpack"):
+		$Root/Backpack.visible = false
+	_emit_block_input()
