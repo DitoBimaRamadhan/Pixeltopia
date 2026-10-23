@@ -21,6 +21,7 @@ var craft_open: bool = false
 var weather_open: bool = false
 var backpack_open: bool = false
 var avatar_open: bool = false
+var _backpack_pick: int = -1  ## selected backpack/hotbar index for swap
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -45,6 +46,7 @@ func _ready() -> void:
 	_setup_touch()
 	_setup_weather_ui()
 	_setup_avatar_ui()
+	_setup_backpack_ui()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 
@@ -52,6 +54,8 @@ func _on_inv_changed() -> void:
 	_rebuild_hotbar()
 	if craft_open:
 		_rebuild_craft_list()
+	if backpack_open:
+		_rebuild_backpack()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
@@ -67,6 +71,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_B and not paused:
+			if backpack_open:
+				close_backpack()
+			else:
+				open_backpack()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_C and not paused:
 			if craft_open:
 				close_craft()
@@ -306,11 +317,87 @@ func _refresh_weather_status() -> void:
 	$Root/WeatherUI/Panel/VBox/Status.text = weather.label() + " — sun is the only light source"
 	$Root/WeatherUI/Panel/VBox/BtnAuto.text = "Auto cycle: On" if weather.auto_cycle else "Auto cycle: Off"
 
+func _setup_backpack_ui() -> void:
+	if not has_node("Root/Backpack"):
+		return
+	$Root/Backpack/Panel/VBox/BtnClose.pressed.connect(close_backpack)
+
+func open_backpack() -> void:
+	if paused:
+		return
+	if craft_open:
+		close_craft()
+	if weather_open:
+		close_weather()
+	if avatar_open:
+		close_avatar()
+	backpack_open = true
+	_backpack_pick = -1
+	if has_node("Root/Backpack"):
+		$Root/Backpack.visible = true
+	_rebuild_backpack()
+	Sfx.play_ui()
+	_emit_block_input()
+
 func close_backpack() -> void:
 	backpack_open = false
+	_backpack_pick = -1
 	if has_node("Root/Backpack"):
 		$Root/Backpack.visible = false
 	_emit_block_input()
+
+func _rebuild_backpack() -> void:
+	if not has_node("Root/Backpack"):
+		return
+	var grid: GridContainer = $Root/Backpack/Panel/VBox/Grid
+	var hot: HBoxContainer = $Root/Backpack/Panel/VBox/HotRow
+	for c in grid.get_children():
+		c.queue_free()
+	for c in hot.get_children():
+		c.queue_free()
+	# Backpack slots
+	for i in range(inv.backpack_start(), inv.slot_count()):
+		var b := Button.new()
+		b.custom_minimum_size = Vector2(120, 36)
+		b.text = inv.label_for(i) if inv.counts[i] > 0 and inv.slots[i] >= 0 else "—"
+		var idx := i
+		b.pressed.connect(func() -> void: _backpack_click(idx))
+		if i == _backpack_pick:
+			b.modulate = Color(1.3, 1.2, 0.7)
+		grid.add_child(b)
+	# Hotbar targets (skip fist)
+	for i in range(1, inv.hotbar_len()):
+		var b2 := Button.new()
+		b2.custom_minimum_size = Vector2(72, 36)
+		b2.text = inv.label_for(i)
+		var idx2 := i
+		b2.pressed.connect(func() -> void: _backpack_click(idx2))
+		if i == _backpack_pick:
+			b2.modulate = Color(1.3, 1.2, 0.7)
+		hot.add_child(b2)
+	var st: Label = $Root/Backpack/Panel/VBox/Status
+	if _backpack_pick < 0:
+		st.text = "Select an item, then a hotbar slot to move it."
+	else:
+		st.text = "Selected slot %d — tap hotbar or another slot to swap." % _backpack_pick
+
+func _backpack_click(idx: int) -> void:
+	if idx == 0:
+		return
+	if _backpack_pick < 0:
+		_backpack_pick = idx
+		Sfx.play_ui()
+		_rebuild_backpack()
+		return
+	if _backpack_pick == idx:
+		_backpack_pick = -1
+		Sfx.play_ui()
+		_rebuild_backpack()
+		return
+	inv.swap_slots(_backpack_pick, idx)
+	_backpack_pick = -1
+	Sfx.play_ui()
+	_rebuild_backpack()
 
 
 func _setup_avatar_ui() -> void:

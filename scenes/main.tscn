@@ -428,3 +428,71 @@ text = "Accessory ▶"
 [node name="BtnClose" type="Button" parent="HUD/Root/AvatarUI/Panel/VBox"]
 layout_mode = 2
 text = "Done"
+
+[node name="Backpack" type="ColorRect" parent="HUD/Root"]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.05, 0.12, 0.22, 0.65)
+
+[node name="Panel" type="PanelContainer" parent="HUD/Root/Backpack"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -280.0
+offset_top = -210.0
+offset_right = 280.0
+offset_bottom = 210.0
+
+[node name="VBox" type="VBoxContainer" parent="HUD/Root/Backpack/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Title" type="Label" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.65, 1)
+theme_override_font_sizes/font_size = 20
+text = "Backpack"
+horizontal_alignment = 1
+
+[node name="Hint" type="Label" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Tap a backpack item, then a hotbar slot to swap. Fist stays fist."
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Grid" type="GridContainer" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 6
+columns = 4
+
+[node name="HotLabel" type="Label" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+text = "Hotbar (swap target)"
+horizontal_alignment = 1
+
+[node name="HotRow" type="HBoxContainer" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Status" type="Label" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = ""
+horizontal_alignment = 1
+
+[node name="BtnClose" type="Button" parent="HUD/Root/Backpack/Panel/VBox"]
+layout_mode = 2
+text = "Close (B / Esc)"

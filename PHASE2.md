@@ -89,11 +89,11 @@ Pixel-art 2D player avatar in a **Growtopia-like feel** (small body, simple face
 
 UI/UX should **feel similar to Growtopia-style sandboxes** (bright colors, pixel icons, newbie-friendly layout) while staying **original** — no copied Growtopia HUD, fonts, or branding.
 
-- [ ] **Hotbar** anchored along the **bottom** of the screen (keep Phase 1 1–7 slots; polish icons and selection highlight)
-- [ ] **Inventory / backpack** panel that opens/closes (key or button); drag or click to move items to/from hotbar
+- [x] **Hotbar** anchored along the **bottom** of the screen (keep Phase 1 slots; selection highlight + touch scroll)
+- [x] **Inventory / backpack** panel that opens/closes (B); click-to-swap items to/from hotbar
 - [x] **Simple action buttons** (especially for touch): jump, punch/break, place/plant — clear labels/icons
-- [ ] **Pause / resume** menu polish (Esc): Resume, Save, Load, Settings — readable pixel-friendly styling
-- [ ] Overall look: bright palette, chunky pixel icons, large tap targets, short tooltips for new players
+- [x] **Pause / resume** menu polish (Esc): Resume, Craft, Save, Load, Mute, Customize Avatar
+- [x] Overall look: bright palette, large tap targets, short tooltips for new players
 - [ ] Connection-free single-player: no fake multiplayer chrome; focus on clarity of build/farm actions
 
 
@@ -187,7 +187,7 @@ Do **not** cut a release APK until most of these are true:
 - [x] Extra tile + second crop (Sand, Azureoot — done)
 - [x] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
 - [x] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
-- [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
+- [x] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
 - [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
 - [ ] Save slots / settings polish (or at least stable single-slot save with version field)
 - [x] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
@@ -279,8 +279,8 @@ Public research only (no account login). Official site `growtopia.com` returned 
 | Craft / combine | Yes §2.2 | Done (craft; not full splice graph) |
 | Weather machine | Yes §2.8 | Done |
 | Avatar cosmetics | Yes §2.9 | Done |
-| Bottom hotbar / backpack UI | Yes §2.10 | Partial (hotbar; backpack open) |
-| Audio / touch / save slots | Yes §2.4–2.6 | Planned |
+| Bottom hotbar / backpack UI | Yes §2.10 | Done |
+| Audio / touch / save slots | Yes §2.4–2.6 | Audio+touch done; multi-slot later |
 | Online worlds, locks, gems, trade, chat | Explicitly later / §2.11 | Not Phase 2 |
 | Exact Growtopia UI/branding | **Forbidden** | Never |
 
@@ -320,6 +320,6 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 4. [x] Touch controls prototype
 5. [x] Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. [x] Character customize (skin/hair/clothes/accessories) + walk in world
-7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
+7. [x] Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
 8. Final Android APK export (§2.13) after feature gate
 
