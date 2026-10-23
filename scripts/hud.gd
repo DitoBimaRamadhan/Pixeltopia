@@ -43,6 +43,19 @@ var _splice_status: Label = null
 var _splice_a: int = -1
 var _splice_b: int = -1
 var _splice_pick_slot: int = 0  ## 0 = picking A, 1 = picking B
+var _net: Node = null
+var _remotes: Node2D = null
+var _mp_status: Label = null
+var _chat_panel: Control = null
+var _chat_log: RichTextLabel = null
+var _chat_input: LineEdit = null
+var _trade_panel: Control = null
+var _trade_status: Label = null
+var _world_panel: Control = null
+var _world_input: LineEdit = null
+var chat_open: bool = false
+var trade_open: bool = false
+var world_travel_open: bool = false
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -89,6 +102,7 @@ func _ready() -> void:
 	_add_store_btn()
 	_add_bag_btn()
 	_style_static_circles()
+	_setup_mp_ui()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 	## Store opens from HUD button / key P (Mira NPC removed).
@@ -185,6 +199,19 @@ func _unhandled_input(event: InputEvent) -> void:
 				open_splice()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_ENTER or event.keycode == KEY_KP_ENTER:
+			if not paused:
+				toggle_chat()
+				get_viewport().set_input_as_handled()
+				return
+		if event.keycode == KEY_T and not paused:
+			toggle_trade()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_N and not paused:
+			toggle_world_travel()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_ESCAPE:
 			if craft_open:
 				close_craft()
@@ -200,6 +227,12 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_splice()
 			elif avatar_open:
 				close_avatar()
+			elif chat_open:
+				close_chat()
+			elif trade_open:
+				close_trade()
+			elif world_travel_open:
+				close_world_travel()
 			else:
 				set_paused(not paused)
 			get_viewport().set_input_as_handled()
@@ -1195,3 +1228,208 @@ func _style_static_circles() -> void:
 		$Root/Backpack/Panel/VBox/BtnClose.text = "Close"
 		UiCircle.apply($Root/Backpack/Panel/VBox/BtnClose, UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
 
+
+
+## --- Multiplayer HUD (chat / trade / world travel) — does not alter Pack UI ---
+func bind_net(n: Node, remotes: Node2D) -> void:
+	_net = n
+	_remotes = remotes
+
+func set_mp_status(text: String) -> void:
+	if _mp_status:
+		_mp_status.text = text
+
+func append_chat(line: String) -> void:
+	if _chat_log:
+		_chat_log.append_text(line + "\n")
+
+func _setup_mp_ui() -> void:
+	_mp_status = Label.new()
+	_mp_status.name = "MpStatus"
+	_mp_status.position = Vector2(12, 64)
+	_mp_status.add_theme_font_size_override("font_size", 12)
+	_mp_status.add_theme_color_override("font_color", Color(0.85, 0.95, 1.0))
+	$Root.add_child(_mp_status)
+	_mp_status.text = "Single-player"
+	# Chat
+	_chat_panel = ColorRect.new()
+	_chat_panel.color = Color(0.05, 0.08, 0.12, 0.88)
+	_chat_panel.visible = false
+	_chat_panel.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_chat_panel.position = Vector2(8, -210)
+	_chat_panel.size = Vector2(340, 200)
+	$Root.add_child(_chat_panel)
+	var cv := VBoxContainer.new()
+	cv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	cv.add_theme_constant_override("separation", 4)
+	_chat_panel.add_child(cv)
+	var ch := Label.new()
+	ch.text = "Chat (Enter)"
+	cv.add_child(ch)
+	_chat_log = RichTextLabel.new()
+	_chat_log.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_chat_log.scroll_following = true
+	_chat_log.fit_content = false
+	_chat_log.custom_minimum_size = Vector2(320, 120)
+	cv.add_child(_chat_log)
+	_chat_input = LineEdit.new()
+	_chat_input.placeholder_text = "Ketik pesan…"
+	_chat_input.text_submitted.connect(_send_chat)
+	cv.add_child(_chat_input)
+	# Trade panel
+	_trade_panel = ColorRect.new()
+	_trade_panel.color = Color(0.08, 0.1, 0.14, 0.92)
+	_trade_panel.visible = false
+	_trade_panel.position = Vector2(360, 80)
+	_trade_panel.size = Vector2(280, 180)
+	$Root.add_child(_trade_panel)
+	var tv := VBoxContainer.new()
+	tv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_trade_panel.add_child(tv)
+	var th := Label.new()
+	th.text = "Trade (T) — nearest player"
+	tv.add_child(th)
+	_trade_status = Label.new()
+	_trade_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_trade_status.text = "Dekati pemain lalu T."
+	tv.add_child(_trade_status)
+	var row := HBoxContainer.new()
+	tv.add_child(row)
+	var b_req := Button.new()
+	b_req.text = "Request"
+	b_req.pressed.connect(_trade_request_nearest)
+	row.add_child(b_req)
+	var b_acc := Button.new()
+	b_acc.text = "Accept"
+	b_acc.pressed.connect(func ():
+		if _net: _net.trade_accept())
+	row.add_child(b_acc)
+	var b_ready := Button.new()
+	b_ready.text = "Ready"
+	b_ready.pressed.connect(func ():
+		if _net:
+			# offer selected hotbar stack if any
+			var items: Array = []
+			if not inv.is_fist():
+				items.append({"id": inv.get_selected_id(), "n": 1})
+			_net.trade_offer(items, 0)
+			_net.trade_ready(true)
+	)
+	row.add_child(b_ready)
+	var b_cancel := Button.new()
+	b_cancel.text = "Cancel"
+	b_cancel.pressed.connect(func ():
+		if _net: _net.trade_cancel()
+		close_trade())
+	row.add_child(b_cancel)
+	# World travel
+	_world_panel = ColorRect.new()
+	_world_panel.color = Color(0.1, 0.12, 0.18, 0.92)
+	_world_panel.visible = false
+	_world_panel.position = Vector2(300, 60)
+	_world_panel.size = Vector2(300, 120)
+	$Root.add_child(_world_panel)
+	var wv := VBoxContainer.new()
+	wv.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_world_panel.add_child(wv)
+	var wh := Label.new()
+	wh.text = "Travel dunia (N)"
+	wv.add_child(wh)
+	_world_input = LineEdit.new()
+	_world_input.placeholder_text = "NAMA_DUNIA"
+	wv.add_child(_world_input)
+	var wr := HBoxContainer.new()
+	wv.add_child(wr)
+	var go := Button.new()
+	go.text = "Travel"
+	go.pressed.connect(func ():
+		var n := _world_input.text.strip_edges().to_upper()
+		if _net and n.length() >= 2:
+			_net.travel(n)
+			close_world_travel()
+	)
+	wr.add_child(go)
+	var mk := Button.new()
+	mk.text = "Create"
+	mk.pressed.connect(func ():
+		var n := _world_input.text.strip_edges().to_upper()
+		if _net and n.length() >= 2:
+			_net.create_world(n)
+			close_world_travel()
+	)
+	wr.add_child(mk)
+
+func toggle_chat() -> void:
+	if chat_open:
+		close_chat()
+	else:
+		chat_open = true
+		if _chat_panel:
+			_chat_panel.visible = true
+			_chat_input.grab_focus()
+
+func close_chat() -> void:
+	chat_open = false
+	if _chat_panel:
+		_chat_panel.visible = false
+
+func _send_chat(text: String) -> void:
+	var msg := text.strip_edges()
+	if msg.is_empty():
+		return
+	if _net:
+		_net.send_chat(msg)
+	_chat_input.text = ""
+
+func toggle_trade() -> void:
+	if trade_open:
+		close_trade()
+	else:
+		trade_open = true
+		if _trade_panel:
+			_trade_panel.visible = true
+
+func close_trade() -> void:
+	trade_open = false
+	if _trade_panel:
+		_trade_panel.visible = false
+
+func toggle_world_travel() -> void:
+	if world_travel_open:
+		close_world_travel()
+	else:
+		world_travel_open = true
+		if _world_panel:
+			_world_panel.visible = true
+			_world_input.grab_focus()
+
+func close_world_travel() -> void:
+	world_travel_open = false
+	if _world_panel:
+		_world_panel.visible = false
+
+func _trade_request_nearest() -> void:
+	if _net == null or _remotes == null:
+		_trade_status.text = "Multiplayer tidak aktif."
+		return
+	var wnode: Node2D = get_parent().get_node("World")
+	var pt: Vector2i = wnode.world_to_tile(player.global_position)
+	var n: Dictionary = _remotes.nearest_other(pt, 8)
+	if n.is_empty():
+		_trade_status.text = "Tidak ada pemain di dekatmu."
+		return
+	_net.trade_request(str(n["id"]))
+	_trade_status.text = "Trade request → %s" % n.get("u", "?")
+
+func on_trade_event(data: Dictionary) -> void:
+	trade_open = true
+	if _trade_panel:
+		_trade_panel.visible = true
+	var ev := str(data.get("event", ""))
+	_trade_status.text = "Trade: %s" % ev
+	if ev == "incoming":
+		_trade_status.text = "Incoming trade — tekan Accept."
+	elif ev == "completed":
+		_trade_status.text = "Trade selesai!"
+	elif ev == "failed":
+		_trade_status.text = str(data.get("error", "Trade gagal"))
