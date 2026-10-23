@@ -40,8 +40,8 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 
 ### 2.4 Audio & juice
 
-- [ ] Procedural or CC0 SFX: place, break, jump, harvest, craft
-- [ ] Toggle mute in pause menu
+- [x] Procedural or CC0 SFX: place, break, jump, harvest, craft, footsteps, UI click
+- [x] Toggle mute in pause menu
 - [ ] Keep / extend floating text + particles; maybe brief screen shake on break
 
 ### 2.5 UX & input
@@ -188,7 +188,7 @@ Do **not** cut a release APK until most of these are true:
 - [ ] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
 - [ ] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
 - [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
-- [ ] Audio juice (place/break/harvest/craft) + mute
+- [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
 - [ ] Save slots / settings polish (or at least stable single-slot save with version field)
 - [ ] Touch controls usable on a phone (or documented “desktop-first” if APK is internal-only)
 - [ ] Headless/smoke + on-device smoke: plant Groveberry + Azureoot, craft Plank/Torch, save/load
@@ -316,7 +316,7 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 
 1. [x] Craft UI + recipes (Plank, Torch from Wood)
 2. [x] One new tile (Sand) + one new crop (Azureoot)
-3. Place/break/harvest SFX + mute toggle
+3. [x] Place/break/harvest SFX + mute toggle
 4. Touch controls prototype
 5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 6. Character customize (skin/hair/clothes/accessories) + walk in world

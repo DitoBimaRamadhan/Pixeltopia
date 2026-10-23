@@ -23,7 +23,7 @@ signal load_requested
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D move · W/Space jump · LMB punch/harvest · RMB place · 1-7 hotbar · C craft · Esc pause/save"
+	hint.text = "A/D move · W/Space jump · LMB punch/harvest · RMB place · 1-7 hotbar · C craft · B backpack · Esc pause · Touch pads on mobile"
 	inv.changed.connect(_on_inv_changed)
 	pause_panel.visible = false
 	craft_panel.visible = false
@@ -31,6 +31,9 @@ func _ready() -> void:
 	$Root/Pause/Panel/BtnCraft.pressed.connect(_open_craft_from_pause)
 	$Root/Pause/Panel/BtnSave.pressed.connect(_on_save)
 	$Root/Pause/Panel/BtnLoad.pressed.connect(_on_load)
+	if has_node("Root/Pause/Panel/BtnMute"):
+		$Root/Pause/Panel/BtnMute.pressed.connect(_on_mute)
+		_refresh_mute_label()
 	$Root/Craft/Panel/VBox/BtnClose.pressed.connect(close_craft)
 	_rebuild_hotbar()
 	_rebuild_craft_list()
@@ -63,6 +66,8 @@ func set_paused(v: bool) -> void:
 		if craft_open:
 			_set_craft_visible(false)
 		pause_status.text = "Paused — progress saves to user://pixeltopia_save.json"
+		_refresh_mute_label()
+		Sfx.play_ui()
 	_emit_block_input()
 
 func _resume() -> void:
@@ -87,6 +92,7 @@ func open_craft() -> void:
 	_set_craft_visible(true)
 	_rebuild_craft_list()
 	craft_status.text = "Pick a recipe. Uses items from your hotbar."
+	Sfx.play_ui()
 	_emit_block_input()
 
 func close_craft() -> void:
@@ -110,7 +116,9 @@ func _rebuild_hotbar() -> void:
 		b.button_pressed = (i == inv.selected)
 		b.text = inv.label_for(i)
 		var idx := i
-		b.pressed.connect(func() -> void: inv.select(idx))
+		b.pressed.connect(func() -> void:
+			inv.select(idx)
+			Sfx.play_ui())
 		if i == inv.selected:
 			b.modulate = Color(1.25, 1.2, 0.85)
 		else:
@@ -151,6 +159,19 @@ func _rebuild_craft_list() -> void:
 func _craft(recipe: Dictionary) -> void:
 	if inv.try_craft(recipe):
 		craft_status.text = "Crafted %s ×%d!" % [str(recipe["name"]), int(recipe.get("result_count", 1))]
+		Sfx.play_craft()
 	else:
 		craft_status.text = "Not enough materials."
+		Sfx.play_ui()
 	_rebuild_craft_list()
+
+
+func _on_mute() -> void:
+	Sfx.toggle_mute()
+	_refresh_mute_label()
+	Sfx.play_ui()
+
+func _refresh_mute_label() -> void:
+	if not has_node("Root/Pause/Panel/BtnMute"):
+		return
+	$Root/Pause/Panel/BtnMute.text = "Unmute SFX" if Sfx.muted else "Mute SFX"

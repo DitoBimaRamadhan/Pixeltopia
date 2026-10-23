@@ -16,6 +16,9 @@ var velocity: Vector2 = Vector2.ZERO
 var facing: int = 1
 var on_floor: bool = false
 var paused: bool = false
+var _step_cd: float = 0.0
+var _touch_dir: float = 0.0
+var _touch_jump: bool = false
 
 func _ready() -> void:
 	_spawn_default()
@@ -36,24 +39,30 @@ func apply_save_pos(pos: Vector2) -> void:
 func _physics_process(delta: float) -> void:
 	if paused:
 		return
-	var dir := 0.0
+	var dir := _touch_dir
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
 		dir -= 1.0
 	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
 		dir += 1.0
+	dir = clampf(dir, -1.0, 1.0)
 	velocity.x = dir * SPEED
 	if dir != 0.0:
 		facing = 1 if dir > 0.0 else -1
-		body_rect.scale.x = float(facing)
+		if body_rect:
+			body_rect.scale.x = float(facing)
 
+	var want_jump := _touch_jump or Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)
+	_touch_jump = false
 	if not on_floor:
 		velocity.y += GRAVITY * delta
-	elif Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP):
+	elif want_jump:
 		velocity.y = JUMP_V
 		on_floor = false
+		Sfx.play_jump()
 
 	_resolve_tiles(delta)
 	_hotbar_keys()
+	_footsteps(delta, dir)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if paused:
@@ -95,6 +104,7 @@ func _punch_or_use(t: Vector2i) -> void:
 			inv.add_item(Tiles.seed_for_crop(drop), 1)
 			var nm: String = Tiles.NAMES.get(drop, "Crop")
 			_spawn_float("+1 %s" % nm, Tiles.color(drop).lightened(0.35))
+			Sfx.play_harvest()
 		return
 	if id != Tiles.Id.AIR:
 		var drop2: int = world.break_tile(t.x, t.y)
@@ -102,6 +112,7 @@ func _punch_or_use(t: Vector2i) -> void:
 			inv.add_item(drop2, 1)
 			var nm: String = Tiles.NAMES.get(drop2, "Item")
 			_spawn_float("+1 %s" % nm, Tiles.color(drop2).lightened(0.35))
+			Sfx.play_break()
 		return
 	if not inv.is_fist():
 		_place(t)
@@ -114,6 +125,7 @@ func _place(t: Vector2i) -> void:
 		return
 	if world.place_tile(t.x, t.y, id):
 		inv.consume_selected(1)
+		Sfx.play_place()
 
 func _resolve_tiles(delta: float) -> void:
 	var pos := global_position
@@ -162,3 +174,26 @@ func _separate(pos: Vector2, horizontal: bool) -> Vector2:
 				elif velocity.y < 0.0:
 					pos.y = tile_r.end.y + half.y
 	return pos
+
+
+func set_touch_dir(d: float) -> void:
+	_touch_dir = clampf(d, -1.0, 1.0)
+
+func request_touch_jump() -> void:
+	_touch_jump = true
+
+func touch_punch_at(world_pos: Vector2) -> void:
+	var t: Vector2i = world.world_to_tile(world_pos)
+	if _in_reach(t):
+		_punch_or_use(t)
+
+func touch_place_at(world_pos: Vector2) -> void:
+	var t: Vector2i = world.world_to_tile(world_pos)
+	if _in_reach(t):
+		_place(t)
+
+func _footsteps(delta: float, dir: float) -> void:
+	_step_cd = maxf(_step_cd - delta, 0.0)
+	if on_floor and absf(dir) > 0.1 and _step_cd <= 0.0:
+		Sfx.play_footstep()
+		_step_cd = 0.28
