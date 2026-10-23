@@ -4,6 +4,7 @@ extends CanvasLayer
 const Items = preload("res://scripts/items.gd")
 const RecipesData = preload("res://scripts/recipes.gd")
 const SplicingData = preload("res://scripts/splicing.gd")
+const ItemIcon = preload("res://scripts/item_icon.gd")
 
 @onready var inv: Node = get_parent().get_node("Inventory")
 @onready var player: Node2D = get_parent().get_node("Player")
@@ -55,7 +56,7 @@ func set_dirty(v: bool) -> void:
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D move · Jump · LMB/RMB · Q/G drop · C craft · Y splice · B bag · P store · Esc · Punch Quill=quest"
+	hint.text = "A/D move · Jump · LMB/RMB · Q/G drop · C craft · Y splice · B bag · P store · Esc · Tap bag slots to equip"
 	inv.changed.connect(_on_inv_changed)
 	if inv.has_signal("gems_changed"):
 		inv.gems_changed.connect(_on_gems_changed)
@@ -86,6 +87,7 @@ func _ready() -> void:
 	_add_drop_touch_btn()
 	_add_splice_btn()
 	_add_store_btn()
+	_add_bag_btn()
 	_style_static_circles()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
@@ -252,15 +254,21 @@ func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
 		c.queue_free()
 	for i in range(inv.hotbar_len()):
-		var accent := Color(0.85, 0.65, 0.2) if i == inv.selected else Color(0.2, 0.42, 0.7)
-		var b := UiCircle.make_button(inv.label_for(i), UiCircle.HOTBAR_SIZE, accent)
-		b.toggle_mode = true
-		b.button_pressed = (i == inv.selected)
+		var cell: Control
+		if i == 0:
+			cell = ItemIcon.make_fist_cell(i == inv.selected)
+		else:
+			var id: int = inv.slots[i] if i < inv.slots.size() else -1
+			var n: int = inv.counts[i] if i < inv.counts.size() else 0
+			cell = ItemIcon.make_cell(id if n > 0 else -1, n, i == inv.selected)
 		var idx := i
-		b.pressed.connect(func() -> void:
-			inv.select(idx)
-			Sfx.play_ui())
-		bar.add_child(b)
+		cell.gui_input.connect(func(ev: InputEvent) -> void:
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				inv.select(idx)
+				Sfx.play_ui())
+		## Keep touch size comfortable on phones.
+		cell.custom_minimum_size = Vector2(maxf(ItemIcon.CELL, 48.0), maxf(ItemIcon.CELL, 48.0))
+		bar.add_child(cell)
 	selected_lbl.text = "Selected: %s" % inv.selected_name()
 
 func _rebuild_craft_list() -> void:
@@ -413,6 +421,53 @@ func _setup_backpack_ui() -> void:
 	if not has_node("Root/Backpack"):
 		return
 	$Root/Backpack/Panel/VBox/BtnClose.pressed.connect(close_backpack)
+	## Detail + action row (GT-like: tap slot → inspect → equip/use).
+	var vbox: VBoxContainer = $Root/Backpack/Panel/VBox
+	if not vbox.has_node("Detail"):
+		var detail := Label.new()
+		detail.name = "Detail"
+		detail.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		detail.add_theme_font_size_override("font_size", 12)
+		detail.add_theme_color_override("font_color", Color(0.9, 0.95, 1.0))
+		detail.text = "Tap an item to inspect. Equip puts it on your hotbar."
+		var actions := HBoxContainer.new()
+		actions.name = "BagActions"
+		actions.alignment = BoxContainer.ALIGNMENT_CENTER
+		actions.add_theme_constant_override("separation", 10)
+		var equip := UiCircle.make_button("Equip", UiCircle.COMPACT_SIZE, Color(0.25, 0.65, 0.45))
+		equip.name = "BtnEquip"
+		equip.pressed.connect(_backpack_equip)
+		var use_btn := UiCircle.make_button("Use", UiCircle.COMPACT_SIZE, Color(0.35, 0.5, 0.85))
+		use_btn.name = "BtnUse"
+		use_btn.pressed.connect(_backpack_use)
+		var drop_btn := UiCircle.make_button("Drop", UiCircle.COMPACT_SIZE, Color(0.7, 0.4, 0.35))
+		drop_btn.name = "BtnDropOne"
+		drop_btn.pressed.connect(_backpack_drop_one)
+		actions.add_child(equip)
+		actions.add_child(use_btn)
+		actions.add_child(drop_btn)
+		## Insert above Status
+		var status_i := vbox.get_node("Status").get_index()
+		vbox.add_child(detail)
+		vbox.move_child(detail, status_i)
+		vbox.add_child(actions)
+		vbox.move_child(actions, status_i + 1)
+	## Wrap Grid in ScrollContainer for long bags.
+	if vbox.has_node("Grid") and not vbox.has_node("GridScroll"):
+		var grid: GridContainer = vbox.get_node("Grid")
+		var idx := grid.get_index()
+		vbox.remove_child(grid)
+		var scroll := ScrollContainer.new()
+		scroll.name = "GridScroll"
+		scroll.custom_minimum_size = Vector2(0, 220)
+		scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		grid.columns = 6
+		grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		scroll.add_child(grid)
+		vbox.add_child(scroll)
+		vbox.move_child(scroll, idx)
 
 func open_backpack() -> void:
 	if paused:
@@ -436,50 +491,152 @@ func close_backpack() -> void:
 func _rebuild_backpack() -> void:
 	if not has_node("Root/Backpack"):
 		return
-	var grid: GridContainer = $Root/Backpack/Panel/VBox/Grid
+	var grid: GridContainer = $Root/Backpack/Panel/VBox/GridScroll/Grid if has_node("Root/Backpack/Panel/VBox/GridScroll/Grid") else $Root/Backpack/Panel/VBox/Grid
 	var hot: HBoxContainer = $Root/Backpack/Panel/VBox/HotRow
 	for c in grid.get_children():
 		c.queue_free()
 	for c in hot.get_children():
 		c.queue_free()
-	for i in range(inv.backpack_start(), inv.slot_count()):
-		var picked := (i == _backpack_pick)
-		var accent := Color(0.9, 0.7, 0.25) if picked else Color(0.25, 0.45, 0.7)
-		var label: String = inv.label_for(i) if inv.counts[i] > 0 and inv.slots[i] >= 0 else "—"
-		var b := UiCircle.make_button(label, UiCircle.HOTBAR_SIZE, accent)
-		var idx := i
-		b.pressed.connect(func() -> void: _backpack_click(idx))
-		grid.add_child(b)
+	## Fist always shown first in hotbar row (locked).
+	var fist := ItemIcon.make_fist_cell(inv.selected == 0)
+	fist.gui_input.connect(func(ev: InputEvent) -> void:
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			inv.select(0)
+			_backpack_pick = -1
+			Sfx.play_ui()
+			_rebuild_backpack())
+	hot.add_child(fist)
 	for i in range(1, inv.hotbar_len()):
-		var picked2 := (i == _backpack_pick)
-		var accent2 := Color(0.9, 0.7, 0.25) if picked2 else Color(0.3, 0.55, 0.35)
-		var b2 := UiCircle.make_button(inv.label_for(i), UiCircle.HOTBAR_SIZE, accent2)
+		var id: int = inv.slots[i]
+		var n: int = inv.counts[i]
+		var picked := (i == _backpack_pick) or (i == inv.selected)
+		var cell := ItemIcon.make_cell(id if n > 0 else -1, n, picked)
 		var idx2 := i
-		b2.pressed.connect(func() -> void: _backpack_click(idx2))
-		hot.add_child(b2)
+		cell.gui_input.connect(func(ev: InputEvent) -> void:
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_backpack_click(idx2))
+		hot.add_child(cell)
+	## Backpack grid: all bag slots (item-type slots with stack counts).
+	for i in range(inv.backpack_start(), inv.slot_count()):
+		var idb: int = inv.slots[i]
+		var nb: int = inv.counts[i]
+		var picked_b := (i == _backpack_pick)
+		var cell_b := ItemIcon.make_cell(idb if nb > 0 else -1, nb, picked_b)
+		var idxb := i
+		cell_b.gui_input.connect(func(ev: InputEvent) -> void:
+			if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+				_backpack_click(idxb))
+		grid.add_child(cell_b)
+	_refresh_backpack_detail()
+
+func _refresh_backpack_detail() -> void:
+	if not has_node("Root/Backpack/Panel/VBox/Detail"):
+		return
+	var detail: Label = $Root/Backpack/Panel/VBox/Detail
 	var st: Label = $Root/Backpack/Panel/VBox/Status
+	var title: Label = $Root/Backpack/Panel/VBox/Title
+	title.text = "Pixeltopia Pack  (%d slots)" % (inv.slot_count() - 1)
+	if has_node("Root/Backpack/Panel/VBox/Hint"):
+		$Root/Backpack/Panel/VBox/Hint.text = "Grid = item types · number = stack (max %d) · tap to select · Equip to hotbar" % inv.MAX_STACK
 	if _backpack_pick < 0:
-		st.text = "Select an item, then a hotbar slot to move it. Q/G drops selected."
-	else:
-		st.text = "Selected slot %d — tap hotbar or another slot to swap." % _backpack_pick
+		detail.text = "No item selected. Tap a colored slot to inspect."
+		st.text = "Hotbar row below: Fist is locked. Tap two slots to swap."
+		return
+	var i := _backpack_pick
+	if i <= 0 or i >= inv.slot_count() or inv.counts[i] <= 0 or inv.slots[i] < 0:
+		detail.text = "Empty slot."
+		st.text = "Pick a filled slot."
+		return
+	var id: int = inv.slots[i]
+	detail.text = "%s ×%d\n[%s]%s\n%s" % [
+		Items.display_name(id),
+		inv.counts[i],
+		Items.rarity_name(id),
+		" · Farmable" if Items.is_farmable(id) else "",
+		Items.description(id),
+	]
+	detail.add_theme_color_override("font_color", Items.rarity_color(id))
+	st.text = "Equip → hotbar hand · Use → select for punch/place · Drop → toss 1 · Tap another slot to swap."
 
 func _backpack_click(idx: int) -> void:
 	if idx == 0:
+		inv.select(0)
+		_backpack_pick = -1
+		Sfx.play_ui()
+		_rebuild_backpack()
 		return
 	if _backpack_pick < 0:
 		_backpack_pick = idx
+		## Soft-select: also highlight as equipped hand if already on hotbar.
+		if idx < inv.hotbar_len() and inv.counts[idx] > 0:
+			inv.select(idx)
 		Sfx.play_ui()
 		_rebuild_backpack()
 		return
 	if _backpack_pick == idx:
-		_backpack_pick = -1
-		Sfx.play_ui()
-		_rebuild_backpack()
+		## Second tap on same slot = equip/use shortcut (GT-like tap-to-wield).
+		_backpack_equip()
 		return
 	inv.swap_slots(_backpack_pick, idx)
 	_backpack_pick = -1
 	Sfx.play_ui()
 	_rebuild_backpack()
+
+func _backpack_equip() -> void:
+	## Move/select picked item onto hotbar (equip to hand).
+	if _backpack_pick < 0:
+		return
+	var src := _backpack_pick
+	if src <= 0 or src >= inv.slot_count():
+		return
+	if inv.counts[src] <= 0 or inv.slots[src] < 0:
+		return
+	if src < inv.hotbar_len():
+		inv.select(src)
+		Sfx.play_ui()
+		_rebuild_backpack()
+		return
+	## Find empty hotbar slot (1..hotbar_len-1) or replace selected non-fist.
+	var dest := -1
+	for i in range(1, inv.hotbar_len()):
+		if inv.counts[i] <= 0 or inv.slots[i] < 0:
+			dest = i
+			break
+	if dest < 0:
+		dest = inv.selected if inv.selected > 0 else 1
+	inv.swap_slots(src, dest)
+	inv.select(dest)
+	_backpack_pick = dest
+	Sfx.play_ui()
+	_rebuild_backpack()
+
+func _backpack_use() -> void:
+	## Select item as active tool (same as equip for placeables/consumables).
+	_backpack_equip()
+
+func _backpack_drop_one() -> void:
+	if _backpack_pick <= 0:
+		return
+	var prev_sel := inv.selected
+	inv.select(_backpack_pick)
+	if player.has_method("touch_drop"):
+		player.touch_drop()
+	inv.select(prev_sel)
+	_backpack_pick = -1
+	Sfx.play_ui()
+	_rebuild_backpack()
+
+func _add_bag_btn() -> void:
+	var b := UiCircle.make_button("Bag", UiCircle.ACTION_SIZE, Color(0.45, 0.55, 0.3))
+	b.name = "BtnBag"
+	b.position = Vector2(420, 8)
+	b.pressed.connect(func() -> void:
+		if backpack_open:
+			close_backpack()
+		else:
+			open_backpack()
+		Sfx.play_ui())
+	$Root.add_child(b)
 
 func _setup_avatar_ui() -> void:
 	if not has_node("Root/AvatarUI"):

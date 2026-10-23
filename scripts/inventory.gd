@@ -6,6 +6,10 @@ signal changed
 signal gems_changed(amount: int)
 
 ## slot index 0 = fist (no item). Slots 1..n hold item ids.
+## Growtopia-inspired: one item type per slot, stack capped (original Pixeltopia branding).
+const MAX_STACK := 200
+const BASE_BACKPACK_SLOTS := 16  ## empty bag slots beyond hotbar (GT starts ~16 types incl. tools)
+
 var slots: Array[int] = []
 var counts: Array[int] = []
 var selected: int = 0  ## hotbar index
@@ -13,9 +17,9 @@ var gems: int = 25  ## starter pocket change
 
 func _ready() -> void:
 	# Fist + starter materials + empty backpack slots
-	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.SEED_AZURE]
-	counts = [0, 64, 32, 16, 16, 32, 8, 24, 8]
-	for _i in range(16):
+	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.WORLD_LOCK]
+	counts = [0, 64, 32, 16, 16, 32, 8, 24, 1]
+	for _i in range(BASE_BACKPACK_SLOTS):
 		slots.append(-1)
 		counts.append(0)
 	changed.emit()
@@ -127,19 +131,35 @@ func try_splice(seed_a: int, seed_b: int) -> Dictionary:
 func add_item(id: int, n: int = 1) -> void:
 	if id < 0 or n <= 0:
 		return
+	var left := n
+	## Fill existing stacks up to MAX_STACK (GT-like stack cap).
 	for i in range(1, slots.size()):
-		if slots[i] == id and counts[i] > 0:
-			counts[i] += n
-			changed.emit()
-			return
-	for i in range(1, slots.size()):
-		if counts[i] <= 0 or slots[i] < 0:
-			slots[i] = id
-			counts[i] = n
-			changed.emit()
-			return
-	slots.append(id)
-	counts.append(n)
+		if left <= 0:
+			break
+		if slots[i] != id or counts[i] <= 0:
+			continue
+		var room: int = MAX_STACK - counts[i]
+		if room <= 0:
+			continue
+		var take: int = mini(room, left)
+		counts[i] += take
+		left -= take
+	## Occupy empty slots for remainder.
+	while left > 0:
+		var placed := false
+		for i in range(1, slots.size()):
+			if counts[i] <= 0 or slots[i] < 0:
+				var take2: int = mini(MAX_STACK, left)
+				slots[i] = id
+				counts[i] = take2
+				left -= take2
+				placed = true
+				break
+		if not placed:
+			var take3: int = mini(MAX_STACK, left)
+			slots.append(id)
+			counts.append(take3)
+			left -= take3
 	changed.emit()
 
 func swap_slots(a: int, b: int) -> void:
