@@ -178,10 +178,7 @@ func _npc_at(t: Vector2i) -> String:
 
 func _punch_or_use(t: Vector2i) -> void:
 	var npc_role := _npc_at(t)
-	if npc_role == "shop":
-		shop_used.emit()
-		Sfx.play_ui()
-		return
+	## Shop NPC removed — Store is opened from the HUD (Store button / key P).
 	if npc_role == "quest":
 		quest_used.emit()
 		Sfx.play_ui()
@@ -203,24 +200,38 @@ func _punch_or_use(t: Vector2i) -> void:
 			Sfx.play_ui()
 		return
 	if Tiles.is_crop(id):
-		var drop: int = world.try_harvest(t.x, t.y, true)
-		if drop >= 0:
-			var nm: String = Items.display_name(drop)
-			_spawn_float("+%s (ground)" % nm, Items.rarity_color(drop))
+		var hr: Dictionary = world.try_harvest(t.x, t.y, true, inv)
+		if int(hr.get("block", -1)) >= 0:
+			_announce_break_rewards(hr)
 			Sfx.play_harvest()
 			crops_harvested.emit(1)
 			world_edited.emit()
 		return
 	if id != Tiles.Id.AIR:
-		var drop2: int = world.break_tile(t.x, t.y, true)
-		if drop2 >= 0:
-			var nm2: String = Items.display_name(drop2)
-			_spawn_float("+%s (ground)" % nm2, Items.rarity_color(drop2))
-			Sfx.play_break()
-			world_edited.emit()
+		var br: Dictionary = world.break_tile(t.x, t.y, true, inv)
+		_announce_break_rewards(br)
+		Sfx.play_break()
+		world_edited.emit()
 		return
 	if not inv.is_fist():
 		_place(t)
+
+func _announce_break_rewards(r: Dictionary) -> void:
+	var bits: PackedStringArray = PackedStringArray()
+	var bid := int(r.get("block", -1))
+	var sid := int(r.get("seed", -1))
+	var gems := int(r.get("gems", 0))
+	if bid >= 0:
+		bits.append(Items.display_name(bid))
+	if sid >= 0:
+		bits.append("seed")
+	if gems > 0:
+		bits.append("+%dg" % gems)
+	if bits.is_empty():
+		_spawn_float("Broke", Color(0.75, 0.75, 0.8))
+	else:
+		var col := Items.rarity_color(bid) if bid >= 0 else Color(0.55, 1.0, 0.85)
+		_spawn_float("+%s" % " · ".join(bits), col)
 
 func _place(t: Vector2i) -> void:
 	if inv.is_fist():

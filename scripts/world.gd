@@ -144,9 +144,8 @@ func _generate(seed_val: int = -1) -> void:
 	if in_bounds(sx + 3, sgy - 1):
 		grid[idx(sx + 3, sgy - 1)] = Tiles.Id.WEATHER_MACHINE
 
-	## NPCs stand on air above grass near spawn (non-tile entities)
+	## Quest guide only (Store is a HUD panel — no merchant NPC).
 	npcs = [
-		{"id": "mira", "role": "shop", "name": "Mira the Merchant", "x": sx - 3, "y": sgy - 1},
 		{"id": "quill", "role": "quest", "name": "Quill the Guide", "x": sx + 5, "y": sgy - 1},
 	]
 	for n in npcs:
@@ -194,24 +193,39 @@ func try_pickup_at(pos: Vector2, inv: Node) -> int:
 		queue_redraw()
 	return picked
 
-func break_tile(x: int, y: int, drop_to_ground: bool = true) -> int:
-	## Returns dropped item id, or -1. If drop_to_ground, spawns a ground drop instead of returning for inventory.
+func break_tile(x: int, y: int, drop_to_ground: bool = true, inv: Node = null) -> Dictionary:
+	## Break a tile and roll farmable/non-farmable drops.
+	## Returns { "block": id|-1, "seed": id|-1, "gems": n }.
+	var result := {"block": -1, "seed": -1, "gems": 0}
 	if not in_bounds(x, y):
-		return -1
+		return result
 	var id := get_tile(x, y)
 	if id == Tiles.Id.AIR:
-		return -1
-	var drop := id
-	if Tiles.is_seed(id):
-		drop = -1  ## lose unripe plant
-	elif Tiles.is_crop(id):
-		drop = id
+		return result
+	## Unripe seeds are lost (no block drop), but may still drip a tiny gem chance.
+	var is_unripe := Tiles.is_seed(id)
 	set_tile(x, y, Tiles.Id.AIR)
 	tile_broken.emit(tile_to_world(Vector2i(x, y)) + Vector2(Tiles.SIZE * 0.5, Tiles.SIZE * 0.5))
-	if drop >= 0 and drop_to_ground:
-		spawn_drop(x, y, drop, 1)
-		return drop
-	return drop
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	## Block drop: farmable nearly always; non-farmable weaker/smaller chance.
+	if not is_unripe and Items.can_drop(id) and rng.randf() < Items.block_drop_chance(id):
+		result["block"] = id
+		if drop_to_ground:
+			spawn_drop(x, y, id, 1)
+	## Seed chance (higher for farmable).
+	var seed_id := Items.seed_drop_for(id)
+	if seed_id >= 0 and rng.randf() < Items.seed_drop_chance(id):
+		result["seed"] = seed_id
+		if drop_to_ground:
+			spawn_drop(x, y, seed_id, 1)
+	## Gem chance (higher + more for farmable).
+	if rng.randf() < Items.gem_drop_chance(id):
+		var g := Items.gem_drop_amount(id, rng)
+		result["gems"] = g
+		if inv != null and inv.has_method("add_gems"):
+			inv.add_gems(g)
+	return result
 
 func place_tile(x: int, y: int, id: int) -> bool:
 	if not in_bounds(x, y):
@@ -234,15 +248,34 @@ func place_tile(x: int, y: int, id: int) -> bool:
 	set_tile(x, y, id)
 	return true
 
-func try_harvest(x: int, y: int, drop_to_ground: bool = true) -> int:
+func try_harvest(x: int, y: int, drop_to_ground: bool = true, inv: Node = null) -> Dictionary:
+	## Harvest mature crop: always drop crop; farmable seed/gem rolls apply.
+	var result := {"block": -1, "seed": -1, "gems": 0}
 	var id := get_tile(x, y)
 	if not Tiles.is_crop(id):
-		return -1
+		return result
 	set_tile(x, y, Tiles.Id.AIR)
+	result["block"] = id
 	if drop_to_ground:
 		spawn_drop(x, y, id, 1)
-		spawn_drop(x, y, Tiles.seed_for_crop(id), 1)
-	return id
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	## Farmable crops: high seed chance (bonus beyond the guaranteed? roll extra or guarantee one).
+	## Guarantee one seed for harvest feel, plus farmable gem roll.
+	var seed_id := Tiles.seed_for_crop(id)
+	result["seed"] = seed_id
+	if drop_to_ground:
+		spawn_drop(x, y, seed_id, 1)
+	## Extra seed chance when farmable
+	if Items.is_farmable(id) and rng.randf() < 0.25:
+		if drop_to_ground:
+			spawn_drop(x, y, seed_id, 1)
+	if rng.randf() < Items.gem_drop_chance(id):
+		var g := Items.gem_drop_amount(id, rng)
+		result["gems"] = g
+		if inv != null and inv.has_method("add_gems"):
+			inv.add_gems(g)
+	return result
 
 func try_fertilize(x: int, y: int) -> bool:
 	## Halves remaining grow time once per plant (stacks at most to 0.5).
@@ -367,12 +400,14 @@ func from_save(data: Dictionary) -> bool:
 		npcs = []
 		for n in data["npcs"]:
 			if typeof(n) == TYPE_DICTIONARY:
+				## Drop retired Mira merchant NPC from older saves.
+				if str(n.get("id", "")) == "mira" or str(n.get("role", "")) == "shop":
+					continue
 				npcs.append(n)
 	elif npcs.is_empty():
 		var sx2 := spawn_tile.x
 		var sy2 := spawn_tile.y + 1
 		npcs = [
-			{"id": "mira", "role": "shop", "name": "Mira the Merchant", "x": sx2 - 3, "y": sy2 - 1},
 			{"id": "quill", "role": "quest", "name": "Quill the Guide", "x": sx2 + 5, "y": sy2 - 1},
 		]
 	world_changed.emit()

@@ -1,6 +1,6 @@
 extends RefCounted
-## Pixeltopia item catalog: id, name, description, rarity, prices.
-## Original content only — Growtopia-inspired drop/shop feel, not a clone.
+## Pixeltopia item catalog: id, name, description, rarity, farmable, prices.
+## Original content only — Growtopia-inspired drop/store feel, not a clone.
 class_name Items
 
 enum Rarity {
@@ -25,34 +25,41 @@ const RARITY_COLORS := {
 }
 
 ## Catalog keyed by tile/item id (aligned with Tiles.Id).
+## farmable: break → higher gem + seed chance; non-farmable → rarer seeds, weaker block drops.
 static func catalog() -> Dictionary:
 	return {
 		Tiles.Id.DIRT: {
 			"id": Tiles.Id.DIRT,
 			"name": "Dirt",
-			"description": "Soft earth. Good for planting and crafting fertilizer.",
+			"description": "Soft earth. Farmable — breaks into gems and seeds more often.",
 			"rarity": Rarity.COMMON,
 			"sell": 1,
 			"buy": 2,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED,
 		},
 		Tiles.Id.GRASS: {
 			"id": Tiles.Id.GRASS,
 			"name": "Grass",
-			"description": "Fresh turf for a greener world.",
+			"description": "Fresh turf. Farmable soil for planting.",
 			"rarity": Rarity.COMMON,
 			"sell": 1,
 			"buy": 3,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED,
 		},
 		Tiles.Id.STONE: {
 			"id": Tiles.Id.STONE,
 			"name": "Stone",
-			"description": "Solid rock for sturdy builds.",
+			"description": "Solid rock. Non-farmable — weaker drops when broken.",
 			"rarity": Rarity.COMMON,
 			"sell": 2,
 			"buy": 4,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 		Tiles.Id.SEED: {
 			"id": Tiles.Id.SEED,
@@ -62,24 +69,30 @@ static func catalog() -> Dictionary:
 			"sell": 3,
 			"buy": 8,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED,
 		},
 		Tiles.Id.CROP: {
 			"id": Tiles.Id.CROP,
 			"name": "Groveberry",
-			"description": "Juicy berry harvest. Used in fertilizer.",
+			"description": "Juicy berry harvest. Farmable crop.",
 			"rarity": Rarity.UNCOMMON,
 			"sell": 6,
 			"buy": -1,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED,
 		},
 		Tiles.Id.WOOD: {
 			"id": Tiles.Id.WOOD,
 			"name": "Wood",
-			"description": "From trees. Craft into planks and torches.",
+			"description": "From trees. Non-farmable building block.",
 			"rarity": Rarity.COMMON,
 			"sell": 2,
 			"buy": 5,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 		Tiles.Id.TORCH: {
 			"id": Tiles.Id.TORCH,
@@ -89,6 +102,8 @@ static func catalog() -> Dictionary:
 			"sell": 3,
 			"buy": 10,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 		Tiles.Id.PLANK: {
 			"id": Tiles.Id.PLANK,
@@ -98,15 +113,19 @@ static func catalog() -> Dictionary:
 			"sell": 5,
 			"buy": 12,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 		Tiles.Id.SAND: {
 			"id": Tiles.Id.SAND,
 			"name": "Sand",
-			"description": "Soft beach sand from low shores.",
+			"description": "Soft beach sand. Mildly farmable.",
 			"rarity": Rarity.COMMON,
 			"sell": 1,
 			"buy": 3,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED,
 		},
 		Tiles.Id.SEED_AZURE: {
 			"id": Tiles.Id.SEED_AZURE,
@@ -116,15 +135,19 @@ static func catalog() -> Dictionary:
 			"sell": 5,
 			"buy": 14,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_AZURE,
 		},
 		Tiles.Id.CROP_AZURE: {
 			"id": Tiles.Id.CROP_AZURE,
 			"name": "Azureoot",
-			"description": "Rare blue root harvest.",
+			"description": "Rare blue root harvest. Farmable.",
 			"rarity": Rarity.RARE,
 			"sell": 12,
 			"buy": -1,
 			"can_drop": true,
+			"farmable": true,
+			"seed_drop": Tiles.Id.SEED_AZURE,
 		},
 		Tiles.Id.WEATHER_MACHINE: {
 			"id": Tiles.Id.WEATHER_MACHINE,
@@ -134,6 +157,8 @@ static func catalog() -> Dictionary:
 			"sell": 40,
 			"buy": 120,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 		Tiles.Id.FERTILIZER: {
 			"id": Tiles.Id.FERTILIZER,
@@ -143,6 +168,8 @@ static func catalog() -> Dictionary:
 			"sell": 4,
 			"buy": 15,
 			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
 		},
 	}
 
@@ -158,6 +185,8 @@ static func get_info(id: int) -> Dictionary:
 		"sell": 1,
 		"buy": -1,
 		"can_drop": true,
+		"farmable": false,
+		"seed_drop": -1,
 	}
 
 static func display_name(id: int) -> String:
@@ -186,8 +215,29 @@ static func can_drop(id: int) -> bool:
 		return false
 	return bool(get_info(id).get("can_drop", false))
 
-## Items the shop sells (buy_price >= 0).
-static func shop_stock() -> Array:
+static func is_farmable(id: int) -> bool:
+	return bool(get_info(id).get("farmable", false))
+
+static func seed_drop_for(id: int) -> int:
+	return int(get_info(id).get("seed_drop", -1))
+
+## Chance tables for break drops (0.0–1.0).
+static func block_drop_chance(id: int) -> float:
+	return 0.92 if is_farmable(id) else 0.38
+
+static func seed_drop_chance(id: int) -> float:
+	return 0.42 if is_farmable(id) else 0.08
+
+static func gem_drop_chance(id: int) -> float:
+	return 0.55 if is_farmable(id) else 0.12
+
+static func gem_drop_amount(id: int, rng: RandomNumberGenerator) -> int:
+	if is_farmable(id):
+		return rng.randi_range(1, 3)
+	return 1
+
+## Items the Store sells (buy_price >= 0).
+static func store_stock() -> Array:
 	var out: Array = []
 	for id in catalog().keys():
 		var info: Dictionary = catalog()[id]
@@ -196,3 +246,7 @@ static func shop_stock() -> Array:
 	out.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		return int(a["id"]) < int(b["id"]))
 	return out
+
+## Back-compat alias.
+static func shop_stock() -> Array:
+	return store_stock()

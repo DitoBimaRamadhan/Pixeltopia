@@ -47,7 +47,7 @@ func set_dirty(v: bool) -> void:
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D move · Jump · LMB punch · RMB place · Q/G drop · 1-7 hotbar · C craft · B bag · Esc · Punch Mira=shop Quill=quest"
+	hint.text = "A/D move · Jump · LMB punch · RMB place · Q/G drop · 1-7 hotbar · C craft · B bag · P store · Esc · Punch Quill=quest"
 	inv.changed.connect(_on_inv_changed)
 	if inv.has_signal("gems_changed"):
 		inv.gems_changed.connect(_on_gems_changed)
@@ -75,9 +75,11 @@ func _ready() -> void:
 	_build_shop_ui()
 	_build_quest_ui()
 	_add_drop_touch_btn()
+	_add_store_btn()
 	_style_static_circles()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
+	## Store opens from HUD button / key P (Mira NPC removed).
 	if player.has_signal("shop_used"):
 		player.shop_used.connect(open_shop)
 	if player.has_signal("quest_used"):
@@ -153,6 +155,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_craft()
 			else:
 				open_craft()
+			get_viewport().set_input_as_handled()
+			return
+		if event.keycode == KEY_P and not paused:
+			if shop_open:
+				close_shop()
+			else:
+				open_shop()
 			get_viewport().set_input_as_handled()
 			return
 		if event.keycode == KEY_ESCAPE:
@@ -536,14 +545,26 @@ func _make_modal(name: String, title_text: String) -> Dictionary:
 	$Root.add_child(root)
 	return {"root": root, "list": list, "status": status, "close": btn_close}
 
+func _add_store_btn() -> void:
+	## Always-visible circular Store opener (replaces Mira NPC).
+	var b := UiCircle.make_button("Store", UiCircle.ACTION_SIZE, Color(0.85, 0.55, 0.2))
+	b.name = "BtnStore"
+	b.position = Vector2(620, 8)
+	b.pressed.connect(func() -> void:
+		if shop_open:
+			close_shop()
+		else:
+			open_shop()
+		Sfx.play_ui())
+	$Root.add_child(b)
+
 func _build_shop_ui() -> void:
-	var ui := _make_modal("ShopUI", "Mira the Merchant")
+	var ui := _make_modal("ShopUI", "Pixeltopia Store")
 	_shop_root = ui["root"]
 	_shop_list = ui["list"]
 	_shop_status = ui["status"]
-	_shop_status.text = "Buy with gems · Sell selected hotbar item"
+	_shop_status.text = "Spend gems to buy seeds, blocks, and tools."
 	ui["close"].pressed.connect(close_shop)
-
 func _build_quest_ui() -> void:
 	var ui := _make_modal("QuestUI", "Quill the Guide — Quests")
 	_quest_root = ui["root"]
@@ -591,27 +612,17 @@ func _rebuild_shop() -> void:
 	gems_row.text = "Your gems: %d" % inv.gems
 	gems_row.add_theme_color_override("font_color", Color(0.55, 1.0, 0.85))
 	_shop_list.add_child(gems_row)
-	## Sell selected
-	var sell_box := HBoxContainer.new()
-	var sell_info := Label.new()
-	sell_info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if inv.is_fist():
-		sell_info.text = "Select a hotbar item to sell"
-	else:
-		var sid: int = inv.get_selected_id()
-		sell_info.text = "Sell 1× %s for %d gems [%s]" % [
-			Items.display_name(sid), Items.sell_price(sid), Items.rarity_name(sid)]
-	var sell_btn := UiCircle.make_button("Sell", UiCircle.COMPACT_SIZE, Color(0.75, 0.45, 0.2))
-	sell_btn.disabled = inv.is_fist() or inv.get_selected_id() < 0
-	sell_btn.pressed.connect(_shop_sell_one)
-	sell_box.add_child(sell_info)
-	sell_box.add_child(sell_btn)
-	_shop_list.add_child(sell_box)
+	var tip := Label.new()
+	tip.text = "Farmable blocks drop more gems & seeds when broken."
+	tip.add_theme_font_size_override("font_size", 11)
+	tip.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_shop_list.add_child(tip)
 	var div := Label.new()
-	div.text = "—— Shop stock ——"
+	div.text = "—— Buy with gems ——"
 	div.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_shop_list.add_child(div)
-	for info in Items.shop_stock():
+	for info in Items.store_stock():
 		var id: int = int(info["id"])
 		var price: int = int(info["buy"])
 		if price < 0:
@@ -619,8 +630,9 @@ func _rebuild_shop() -> void:
 		var row := HBoxContainer.new()
 		var lab := Label.new()
 		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lab.text = "%s — %d gems\n%s [%s]" % [
-			Items.display_name(id), price, Items.description(id), Items.rarity_name(id)]
+		var farm_tag := " · Farmable" if Items.is_farmable(id) else ""
+		lab.text = "%s — %d gems%s\n%s [%s]" % [
+			Items.display_name(id), price, farm_tag, Items.description(id), Items.rarity_name(id)]
 		lab.add_theme_font_size_override("font_size", 12)
 		lab.add_theme_color_override("font_color", Items.rarity_color(id))
 		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -633,21 +645,6 @@ func _rebuild_shop() -> void:
 		row.add_child(buy)
 		_shop_list.add_child(row)
 
-func _shop_sell_one() -> void:
-	if inv.is_fist():
-		_shop_status.text = "Nothing selected."
-		return
-	var id: int = inv.get_selected_id()
-	var price: int = Items.sell_price(id)
-	if price <= 0 or not inv.consume_selected(1):
-		_shop_status.text = "Cannot sell that."
-		Sfx.play_ui()
-		return
-	inv.add_gems(price)
-	_shop_status.text = "Sold 1× %s for %d gems." % [Items.display_name(id), price]
-	Sfx.play_craft()
-	_rebuild_shop()
-
 func _shop_buy(id: int, price: int) -> void:
 	if not inv.spend_gems(price):
 		_shop_status.text = "Not enough gems."
@@ -655,10 +652,9 @@ func _shop_buy(id: int, price: int) -> void:
 		_rebuild_shop()
 		return
 	inv.add_item(id, 1)
-	_shop_status.text = "Bought 1× %s." % Items.display_name(id)
+	_shop_status.text = "Bought 1× %s (−%d gems)." % [Items.display_name(id), price]
 	Sfx.play_craft()
 	_rebuild_shop()
-
 func _quest_log() -> Node:
 	return get_parent().get_node("QuestLog")
 
