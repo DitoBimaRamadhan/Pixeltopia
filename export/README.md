@@ -1,9 +1,19 @@
-# Pixeltopia Android APK
+# Pixeltopia Android export
 
-**Latest:** [v0.9.0 Release](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.9.0)
+Godot **4.3** debug APK (`com.pixeltopia.game`).
 
-**Direct download:** [Pixeltopia.apk](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.9.0/Pixeltopia.apk)
+## Downloads
 
-v0.9.0 — all UI buttons are true circles (≥48dp touch targets). Original Pixeltopia branding (not affiliated with Growtopia).
+- **v0.8.0 (auth + shards):** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.8.0
+  - Direct: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.8.0/Pixeltopia.apk
+- Also on `main`: https://github.com/DitoBimaRamadhan/Pixeltopia/raw/main/export/Pixeltopia.apk
 
-Debug-signed APK (`com.pixeltopia.game`). Enable “Install unknown apps” on your device if needed.
+Signed with the standard Android **debug** keystore (not for Play Store).
+
+## Local rebuild
+
+```bash
+godot --headless --path . --export-debug "Android" export/Pixeltopia.apk
+```
+
+See `server/README.md` and `HOSTING.md` for the Node auth/shard backend.
