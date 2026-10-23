@@ -10,3 +10,6 @@ export/*.idsig
 export/*.apk
 !export/Pixeltopia.apk
 !export/README.md
+
+# Godot import sidecars under legacy import (not game assets)
+imported/**/*.import
