@@ -2,11 +2,13 @@
 
 Godot **4.3** debug APK for sideload / testing (`com.pixeltopia.game`, version `0.2.0`).
 
-## Download (committed build)
+## Download (preferred)
 
-- **APK path in repo:** [`export/Pixeltopia.apk`](https://github.com/DitoBimaRamadhan/Pixeltopia/blob/main/export/Pixeltopia.apk)
-- **Direct download (raw):** https://github.com/DitoBimaRamadhan/Pixeltopia/raw/main/export/Pixeltopia.apk
-- Signed with the standard Android **debug** keystore (not for Play Store).
+- **Release:** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.2.0
+- **Direct APK asset:** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.2.0/Pixeltopia.apk
+- Also on `main`: https://github.com/DitoBimaRamadhan/Pixeltopia/raw/main/export/Pixeltopia.apk
+
+Signed with the standard Android **debug** keystore (not for Play Store).
 
 ## Local rebuild
 
