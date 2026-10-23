@@ -9,3 +9,4 @@ export/*.apk
 export/*.aab
 !export/README.md
 export_presets.cfg
+export/*.idsig
