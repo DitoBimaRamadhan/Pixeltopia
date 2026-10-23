@@ -333,6 +333,6 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 ## v0.4.0 gameplay slice (post Phase 2)
 
 - Item catalog with rarity + ground drops (Q/G to drop, walk-over pickup)
-- Mira the Merchant: buy/sell with gems
+- Pixeltopia Store: buy items with gems (farmable drops on break)
 - Quill the Guide: accept/complete/claim simple quests
 - Save format version **4** (gems, drops, quests, world_seed)

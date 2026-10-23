@@ -82,6 +82,6 @@ for reference. Pixeltopia itself remains the Godot 4 game. See
 ## Latest (v0.4.0)
 
 - Item catalog with rarity; drop (Q/G) and walk-over pickup
-- **Mira the Merchant** — buy/sell with gems
+- **Pixeltopia Store** — buy items with gems (HUD Store / key P)
 - **Quill the Guide** — accept / complete / claim quests
 - APK: [Release v0.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.4.0)

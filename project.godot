@@ -1,4 +1,4 @@
-; Engine configuration file — Pixeltopia v0.9.0 (circular buttons)
+; Engine configuration file — Pixeltopia Store + farmable drops (v1.0.0)
 config_version=5
 
 [application]
@@ -7,7 +7,7 @@ config/description="Original 2D sandbox farming prototype. Not affiliated with G
 run/main_scene="res://scenes/auth/login.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
-config/version="0.9.0"
+config/version="1.0.0"
 
 [autoload]
 Session="*res://scripts/auth/session.gd"
