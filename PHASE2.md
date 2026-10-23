@@ -21,16 +21,16 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 
 ### 2.1 Content — tiles & crops
 
-- [ ] Add 2–4 new solid tiles (e.g. Sand, Clay, Plank) with colors in `tiles.gd`
-- [ ] Second crop type with different grow time / yield (keep Groveberry working)
+- [x] Add solid tiles: **Plank** (crafted) + **Sand** in `tiles.gd` (Clay still open)
+- [x] Second crop: **Azureoot** (~12s grow; Groveberry still ~8s)
 - [ ] Optional: watering or fertilizer as a simple inventory item that shortens grow time
 - [ ] Dropped items on ground (pickup on walk-over) instead of only inventory auto-add
 
 ### 2.2 Crafting UI (still local)
 
-- [ ] Simple craft panel (Esc menu or key `C`): recipes like Wood×2 → Plank, Stick+Coal → Torch
-- [ ] Recipes defined in one data file / dictionary (no hard-coded only in UI)
-- [ ] Craft consumes inventory and respects Phase 1 hotbar rules
+- [x] Craft panel (key `C` or pause → Craft): Wood×2 → Plank, Wood×1 → Torch×2
+- [x] Recipes in `scripts/recipes.gd` data dictionary
+- [x] Craft consumes via `count_of` / `consume_item`; hotbar Phase 1 rules kept
 
 ### 2.3 World generation
 
@@ -96,6 +96,83 @@ UI/UX should **feel similar to Growtopia-style sandboxes** (bright colors, pixel
 - [ ] Overall look: bright palette, chunky pixel icons, large tap targets, short tooltips for new players
 - [ ] Connection-free single-player: no fake multiplayer chrome; focus on clarity of build/farm actions
 
+
+
+### 2.11 Multiplayer (planning / Phase 3 prep)
+
+Godot can do multiplayer, but a **Growtopia-scale ~100+ players per world** is **not** a realistic Phase 2 target on stock high-level ENet alone. Treat this section as **plan + prep**; live netcode stays Phase 3+ unless scoped as a tiny friends spike.
+
+#### Realistic capacity (honest)
+
+| Setup | Comfortable players / instance | Notes |
+|--------|----------------------------------|--------|
+| Godot **host-and-play** (listen server) | ~4–8 friends | Host PC does sim + render; NAT/UDP pain; fine for LAN / Discord nights |
+| Godot **dedicated** headless + **ENet** HLAPI | ~8–32 typical for active sandbox | API allows up to 4095 clients; real limit is CPU, bandwidth, replication chatter |
+| Optimized Godot dedicated (interest mgmt, sparse tile deltas) | maybe ~32–64 | Needs careful design; still far from MMO density |
+| Custom **authoritative** Node/Go server + thin clients (Pixel Sandbox style) | tens–100+ *if* worlds are sharded | Better path toward Growtopia-like density; Godot or web client is “dumb” view |
+
+Community stress notes: bare ENet connection storms can fail in the high hundreds–low thousands; gameplay with positions/inventory often drops usable load to **~tens–low hundreds** before quality collapses. Growtopia’s ~100+/world uses a **custom** stack, not “drop-in Godot multiplayer.”
+
+#### ENet vs WebSocket
+
+- **ENet (UDP):** Godot’s default `ENetMultiplayerPeer`. Low latency, good for native desktop/mobile. **Not** usable from browsers. Hosting needs open UDP.
+- **WebSocket (TCP):** `WebSocketMultiplayerPeer` or a custom WS protocol (as in Pixel Sandbox → Render). Works for **web + Capacitor WebView**, easier through firewalls/HTTPS proxies, higher overhead / head-of-line blocking.
+- **Practice:** native Godot builds → prefer ENet; web/APK-WebView → WebSocket (or native plugin). Same game logic can share message schemas either way.
+
+#### Dedicated vs host-and-play
+
+- **Host-and-play:** fastest to demo (“Create world” / “Join IP”). Bad for economy/anti-cheat; host can quit and dissolve the world.
+- **Dedicated server:** required for persistent worlds, fair trade/gems, and public play. Export Godot `--headless` / dedicated_server feature **or** keep a separate Node/Go authority (closer to Pixel Sandbox).
+
+#### Technical steps (when we leave single-player)
+
+1. Freeze tile / item / inventory IDs as JSON-serializable ints (already mostly true).
+2. Decide authority: **server owns** place/break, inventory, craft, trade — clients send *intent*.
+3. Pick transport: ENet for Godot-native spike; WebSocket if targeting web/Capacitor parity with Pixel Sandbox.
+4. Replicate sparsely: player transforms + **tile deltas**, not full 64×40 every tick; AOI / per-world rooms.
+5. Rate-limit punch/place/chat; reject impossible reaches; never trust client gem/inventory counts.
+6. Persist worlds in SQLite/Postgres; one process per shard or many worlds per process with caps.
+7. Stress-test with bots before promising “100 players.”
+
+**Phase 2 action:** document only + keep save formats migration-friendly. **No sockets in Phase 2 gameplay** unless an explicit LAN spike is requested.
+
+### 2.12 APK analysis — Pixel Sandbox (reference, not a clone)
+
+Analyzed Capacitor APK `75946c9a…apk` (~3.8 MB) and extracted web client under `/workspace/pixel-sandbox-client/`. Package identity: **Pixel Sandbox** (`com.pixelsandbox.game` style Capacitor shell). **Not** affiliated with Growtopia; use as a **feature/architecture reference** for Pixeltopia — keep original name/UI/art.
+
+#### APK structure (findings)
+
+- **Shell:** Capacitor Android — `classes*.dex`, `AndroidManifest.xml`, `assets/capacitor.config.json`, `native-bridge.js`
+- **Game client:** `assets/public/` — `index.html`, `config.js`, `shared.js`, `game.js` (~960 lines), `sound.js`, `icons.js`, `style.css`, `fonts/PixelifySans.ttf`, `img/player.png`
+- **Server:** **not** in the APK. Client connects via WebSocket to `https://pixel-sandbox-i1fv.onrender.com` → `wss://…`
+- **Shared schema:** `shared.js` dual-use (browser + Node): TILE 32, world ~100×60, blocks/seeds, splice table, cosmetics slots, shop/gems, world lock, physics constants
+
+#### Feature surface (client-visible)
+
+Auth (register/login/token), named worlds + world locks, punch/place, farming/seeds/splice, platformer sync, hotbar/touch, inventory, gems/shop, cosmetics, friends/PM, **trade**, chat, procedural pixel draw + WebAudio.
+
+#### Gaps vs Pixeltopia (Godot Phase 1/2)
+
+| Area | Pixel Sandbox (APK) | Pixeltopia now |
+|------|---------------------|----------------|
+| Engine | Canvas + WS in WebView | Godot 4.3 native 2D |
+| Multiplayer | Online (hosted Node) | Single-player only |
+| Economy | Gems, shop, trade | Local craft only |
+| Social | Friends, PM, chat | None |
+| World | ~100×60, locks, many item IDs | 64×40, few tiles + 2 crops |
+| Persistence | Server DB | `user://` JSON save |
+| Mobile UX | Touchpad / Capacitor | Keyboard+mouse (touch planned) |
+| Branding | Pixel Sandbox original | Pixeltopia original — keep it that way |
+
+#### Recommendations for Pixeltopia
+
+1. **Keep Godot** for Phase 2 content (craft/weather/avatar/UI) — already ahead on local sandbox feel.
+2. **Do not** port Pixel Sandbox UI/assets verbatim; steal *systems ideas* (authoritative place/break, splice-like recipes, world rooms) with original presentation.
+3. For future online: either (A) Godot dedicated + ENet for small friend worlds, or (B) Node/Go authority + Godot/WebSocket client if aiming closer to APK scale — option B matches the APK’s real architecture.
+4. If reusing any Pixel Sandbox *code* you own, vendor it under clear license; never ship Growtopia assets.
+5. Next Pixeltopia tickets stay offline: SFX, touch, weather machine, avatar, backpack UI — then multiplayer prep docs → Phase 3 spike.
+
+
 ## Explicitly later (not Phase 2 gameplay)
 
 | Topic | Note |
@@ -123,8 +200,8 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 
 ## Suggested first tickets
 
-1. Craft UI + 2–3 recipes (Plank, Torch from ingredients)
-2. One new tile + one new crop
+1. [x] Craft UI + recipes (Plank, Torch from Wood)
+2. [x] One new tile (Sand) + one new crop (Azureoot)
 3. Place/break/harvest SFX + mute toggle
 4. Touch controls prototype
 5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets

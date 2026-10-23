@@ -63,3 +63,10 @@ pixeltopia/
   README.md
   PHASE2.md
 ```
+
+
+## Phase 2 (started)
+
+- Craft UI (`C`): Wood×2→Plank, Wood×1→Torch×2
+- Sand tile + Azureoot crop
+- See `PHASE2.md` for weather, multiplayer prep, APK notes
