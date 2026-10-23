@@ -78,7 +78,7 @@ func _selected_name() -> String:
 
 func _on_join() -> void:
 	var wname := _selected_name()
-		Session.selected_server["world"] = wname
+	Session.selected_server["world"] = wname
 	Session.set_selected_server(Session.selected_server)
 	if Session.offline_mode:
 		get_tree().change_scene_to_file("res://scenes/main.tscn")
