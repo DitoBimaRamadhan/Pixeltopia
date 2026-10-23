@@ -62,6 +62,18 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 - [ ] Distinct icons for hotbar items
 - [ ] **Never** copy Growtopia or other commercial UI / logos / assets
 
+
+### 2.8 Weather / day-cycle
+
+Lighting and atmosphere for Phase 2. **Sun only** as the primary light source — do **not** add moon or stars as light sources (they may appear as decorative sky art later, but they must not illuminate the world).
+
+- [ ] **Day periods (sun-driven):** Morning, Noon/Day, Afternoon/Evening, Night — each changes sky tint, ambient brightness, and how far the sun lights the scene
+- [ ] **Atmospheric presets (weather moods):** Aurora, City/Overcast (tengah kota), plus similar freeform moods (e.g. foggy, clear, stormy tint) that adjust color/fog without adding non-sun light sources
+- [ ] **Weather machine (in-world):** Placeable console/machine the player can interact with to **manually** switch day period and weather mood (not only auto time-of-day). Treat it like a world device (interact key / click), with a small UI listing available presets
+- [ ] Optional auto cycle: slow Morning → Night progression when the machine is set to “auto”; manual overrides always win until reset
+- [ ] Torch and other local lights still work at night; global fill light remains sun-based only
+- [ ] Persist current weather / period in save JSON (with a version-friendly field)
+
 ## Explicitly later (not Phase 2 gameplay)
 
 | Topic | Note |
@@ -85,7 +97,7 @@ Deepen **single-player** sandbox + farming: more content, clearer craft loop, ni
 
 ## Success criteria
 
-Phase 2 is “done enough” when a player can: explore a slightly richer world, craft at least a few items through a UI, hear feedback, optionally use touch controls, and save/load without losing Phase 1 behavior.
+Phase 2 is “done enough” when a player can: explore a slightly richer world, craft at least a few items through a UI, hear feedback, optionally use touch controls, change lighting via the weather machine (sun-only day periods + moods), and save/load without losing Phase 1 behavior.
 
 ## Suggested first tickets
 
@@ -93,4 +105,5 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 2. One new tile + one new crop
 3. Place/break/harvest SFX + mute toggle
 4. Touch controls prototype
+5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
 
