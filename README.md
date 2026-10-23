@@ -77,3 +77,11 @@ The earlier **Pixel Sandbox** (Node + Canvas + Capacitor) prototype owned by the
 same author is archived under [`imported/pixel-sandbox/`](imported/pixel-sandbox/)
 for reference. Pixeltopia itself remains the Godot 4 game. See
 [`imported/IMPORT.md`](imported/IMPORT.md).
+
+
+## Latest (v0.4.0)
+
+- Item catalog with rarity; drop (Q/G) and walk-over pickup
+- **Mira the Merchant** — buy/sell with gems
+- **Quill the Guide** — accept / complete / claim quests
+- APK: [Release v0.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.4.0)
