@@ -59,8 +59,12 @@ func _ready() -> void:
 	$Root/Pause/Panel/BtnLoad.pressed.connect(_on_load)
 	if has_node("Root/Pause/Panel/BtnMute"):
 		$Root/Pause/Panel/BtnMute.pressed.connect(_on_mute)
-		_refresh_mute_label()
+	if has_node("Root/Pause/Panel/BtnAvatar"):
+		$Root/Pause/Panel/BtnAvatar.pressed.connect(_open_avatar_from_pause)
+	_layout_pause_circles()
+	_refresh_mute_label()
 	$Root/Craft/Panel/VBox/BtnClose.pressed.connect(close_craft)
+	$Root/Craft/Panel/VBox/BtnClose.text = "Close"
 	_rebuild_hotbar()
 	_rebuild_craft_list()
 	_setup_touch()
@@ -71,6 +75,7 @@ func _ready() -> void:
 	_build_shop_ui()
 	_build_quest_ui()
 	_add_drop_touch_btn()
+	_style_static_circles()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 	if player.has_signal("shop_used"):
@@ -96,9 +101,8 @@ func _on_gems_changed(amount: int) -> void:
 func _add_drop_touch_btn() -> void:
 	if not has_node("Root/TouchPad"):
 		return
-	var b := Button.new()
+	var b := UiCircle.make_button("Drop", UiCircle.TOUCH_SIZE, Color(0.55, 0.35, 0.72))
 	b.name = "BtnDrop"
-	b.text = "Drop"
 	b.anchor_left = 1.0
 	b.anchor_top = 1.0
 	b.anchor_right = 1.0
@@ -218,19 +222,14 @@ func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
 		c.queue_free()
 	for i in range(inv.hotbar_len()):
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(72, 40)
+		var accent := Color(0.85, 0.65, 0.2) if i == inv.selected else Color(0.2, 0.42, 0.7)
+		var b := UiCircle.make_button(inv.label_for(i), UiCircle.HOTBAR_SIZE, accent)
 		b.toggle_mode = true
 		b.button_pressed = (i == inv.selected)
-		b.text = inv.label_for(i)
 		var idx := i
 		b.pressed.connect(func() -> void:
 			inv.select(idx)
 			Sfx.play_ui())
-		if i == inv.selected:
-			b.modulate = Color(1.25, 1.2, 0.85)
-		else:
-			b.modulate = Color(1.05, 1.05, 1.0)
 		bar.add_child(b)
 	selected_lbl.text = "Selected: %s" % inv.selected_name()
 
@@ -252,12 +251,10 @@ func _rebuild_craft_list() -> void:
 		blurb.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
 		info.add_child(name_lbl)
 		info.add_child(blurb)
-		var btn := Button.new()
-		btn.text = "Craft"
-		btn.custom_minimum_size = Vector2(88, 36)
 		var can: bool = inv.can_afford(recipe.get("ingredients", []))
+		var accent := Color(0.25, 0.7, 0.4) if can else Color(0.4, 0.42, 0.45)
+		var btn := UiCircle.make_button("Craft", UiCircle.COMPACT_SIZE, accent)
 		btn.disabled = not can
-		btn.modulate = Color(0.55, 1.0, 0.65) if can else Color(0.7, 0.7, 0.7)
 		var r: Dictionary = recipe
 		btn.pressed.connect(func() -> void: _craft(r))
 		row.add_child(info)
@@ -279,9 +276,10 @@ func _on_mute() -> void:
 	Sfx.play_ui()
 
 func _refresh_mute_label() -> void:
-	if not has_node("Root/Pause/Panel/BtnMute"):
+	var mute := _pause_btn("BtnMute")
+	if mute == null:
 		return
-	$Root/Pause/Panel/BtnMute.text = "Unmute SFX" if Sfx.muted else "Mute SFX"
+	mute.text = "Unmute" if Sfx.muted else "Mute"
 
 func _setup_touch() -> void:
 	if not has_node("Root/TouchPad"):
@@ -333,9 +331,9 @@ func _setup_weather_ui() -> void:
 		c.queue_free()
 	var periods := ["Morning", "Noon", "Afternoon", "Night"]
 	for i in range(periods.size()):
-		var b := Button.new()
-		b.text = periods[i]
-		b.custom_minimum_size = Vector2(96, 32)
+		var short: String = ["AM", "Noon", "PM", "Night"][i]
+		var b := UiCircle.make_button(short, UiCircle.COMPACT_SIZE, Color(0.9, 0.7, 0.2))
+		b.tooltip_text = periods[i]
 		var pi := i
 		b.pressed.connect(func() -> void:
 			weather.set_period(pi)
@@ -344,9 +342,7 @@ func _setup_weather_ui() -> void:
 		period_row.add_child(b)
 	var moods := ["Clear", "Aurora", "City"]
 	for i in range(moods.size()):
-		var b2 := Button.new()
-		b2.text = moods[i]
-		b2.custom_minimum_size = Vector2(110, 32)
+		var b2 := UiCircle.make_button(moods[i], UiCircle.ACTION_SIZE, Color(0.35, 0.55, 0.85))
 		var mi := i
 		b2.pressed.connect(func() -> void:
 			weather.set_mood(mi)
@@ -381,7 +377,7 @@ func _refresh_weather_status() -> void:
 	if not has_node("Root/WeatherUI"):
 		return
 	$Root/WeatherUI/Panel/VBox/Status.text = weather.label() + " — sun is the only light source"
-	$Root/WeatherUI/Panel/VBox/BtnAuto.text = "Auto cycle: On" if weather.auto_cycle else "Auto cycle: Off"
+	$Root/WeatherUI/Panel/VBox/BtnAuto.text = "Auto On" if weather.auto_cycle else "Auto Off"
 
 func _setup_backpack_ui() -> void:
 	if not has_node("Root/Backpack"):
@@ -417,22 +413,19 @@ func _rebuild_backpack() -> void:
 	for c in hot.get_children():
 		c.queue_free()
 	for i in range(inv.backpack_start(), inv.slot_count()):
-		var b := Button.new()
-		b.custom_minimum_size = Vector2(120, 36)
-		b.text = inv.label_for(i) if inv.counts[i] > 0 and inv.slots[i] >= 0 else "—"
+		var picked := (i == _backpack_pick)
+		var accent := Color(0.9, 0.7, 0.25) if picked else Color(0.25, 0.45, 0.7)
+		var label: String = inv.label_for(i) if inv.counts[i] > 0 and inv.slots[i] >= 0 else "—"
+		var b := UiCircle.make_button(label, UiCircle.HOTBAR_SIZE, accent)
 		var idx := i
 		b.pressed.connect(func() -> void: _backpack_click(idx))
-		if i == _backpack_pick:
-			b.modulate = Color(1.3, 1.2, 0.7)
 		grid.add_child(b)
 	for i in range(1, inv.hotbar_len()):
-		var b2 := Button.new()
-		b2.custom_minimum_size = Vector2(72, 36)
-		b2.text = inv.label_for(i)
+		var picked2 := (i == _backpack_pick)
+		var accent2 := Color(0.9, 0.7, 0.25) if picked2 else Color(0.3, 0.55, 0.35)
+		var b2 := UiCircle.make_button(inv.label_for(i), UiCircle.HOTBAR_SIZE, accent2)
 		var idx2 := i
 		b2.pressed.connect(func() -> void: _backpack_click(idx2))
-		if i == _backpack_pick:
-			b2.modulate = Color(1.3, 1.2, 0.7)
 		hot.add_child(b2)
 	var st: Label = $Root/Backpack/Panel/VBox/Status
 	if _backpack_pick < 0:
@@ -459,8 +452,6 @@ func _backpack_click(idx: int) -> void:
 	_rebuild_backpack()
 
 func _setup_avatar_ui() -> void:
-	if has_node("Root/Pause/Panel/BtnAvatar"):
-		$Root/Pause/Panel/BtnAvatar.pressed.connect(_open_avatar_from_pause)
 	if not has_node("Root/AvatarUI"):
 		return
 	$Root/AvatarUI/Panel/VBox/BtnClose.pressed.connect(close_avatar)
@@ -535,8 +526,7 @@ func _make_modal(name: String, title_text: String) -> Dictionary:
 	status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	status.add_theme_font_size_override("font_size", 12)
-	var btn_close := Button.new()
-	btn_close.text = "Close (Esc)"
+	var btn_close := UiCircle.make_button("Close", UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
 	vbox.add_child(title_l)
 	vbox.add_child(scroll)
 	vbox.add_child(status)
@@ -611,8 +601,7 @@ func _rebuild_shop() -> void:
 		var sid: int = inv.get_selected_id()
 		sell_info.text = "Sell 1× %s for %d gems [%s]" % [
 			Items.display_name(sid), Items.sell_price(sid), Items.rarity_name(sid)]
-	var sell_btn := Button.new()
-	sell_btn.text = "Sell 1"
+	var sell_btn := UiCircle.make_button("Sell", UiCircle.COMPACT_SIZE, Color(0.75, 0.45, 0.2))
 	sell_btn.disabled = inv.is_fist() or inv.get_selected_id() < 0
 	sell_btn.pressed.connect(_shop_sell_one)
 	sell_box.add_child(sell_info)
@@ -635,9 +624,7 @@ func _rebuild_shop() -> void:
 		lab.add_theme_font_size_override("font_size", 12)
 		lab.add_theme_color_override("font_color", Items.rarity_color(id))
 		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var buy := Button.new()
-		buy.text = "Buy"
-		buy.custom_minimum_size = Vector2(72, 36)
+		var buy := UiCircle.make_button("Buy", UiCircle.COMPACT_SIZE, Color(0.25, 0.7, 0.45))
 		buy.disabled = inv.gems < price
 		var iid := id
 		var ip := price
@@ -710,16 +697,14 @@ func _rebuild_quest() -> void:
 		]
 		reward.add_theme_font_size_override("font_size", 12)
 		var btns := HBoxContainer.new()
-		var acc := Button.new()
-		acc.text = "Accept"
+		var acc := UiCircle.make_button("Accept", UiCircle.COMPACT_SIZE, Color(0.3, 0.55, 0.85))
 		acc.disabled = ql.is_accepted(qid) or ql.is_claimed(qid)
 		acc.pressed.connect(func() -> void:
 			if ql.accept(qid):
 				_quest_status.text = "Accepted: %s" % str(d["title"])
 				Sfx.play_ui()
 				_rebuild_quest())
-		var claim := Button.new()
-		claim.text = "Claim"
+		var claim := UiCircle.make_button("Claim", UiCircle.COMPACT_SIZE, Color(0.85, 0.65, 0.2))
 		claim.disabled = not ql.is_complete(qid) or ql.is_claimed(qid)
 		claim.pressed.connect(func() -> void:
 			if ql.claim(qid, inv):
@@ -737,3 +722,128 @@ func _rebuild_quest() -> void:
 		row.add_child(reward)
 		row.add_child(btns)
 		_quest_list.add_child(row)
+
+func _pause_btn(name: String) -> Button:
+	var p2 := "Root/Pause/Panel/CircleActions/%s" % name
+	var p1 := "Root/Pause/Panel/%s" % name
+	if has_node(p2):
+		return get_node(p2)
+	if has_node(p1):
+		return get_node(p1)
+	return null
+
+func _layout_pause_circles() -> void:
+	## Re-pack pause actions into a centered flow of true circular buttons.
+	var panel: VBoxContainer = $Root/Pause/Panel
+	var names := ["BtnResume", "BtnCraft", "BtnSave", "BtnLoad", "BtnMute", "BtnAvatar"]
+	var labels := {
+		"BtnResume": "Resume",
+		"BtnCraft": "Craft",
+		"BtnSave": "Save",
+		"BtnLoad": "Load",
+		"BtnMute": "Mute",
+		"BtnAvatar": "Avatar",
+	}
+	var accents := {
+		"BtnResume": Color(0.25, 0.65, 0.4),
+		"BtnCraft": Color(0.7, 0.5, 0.2),
+		"BtnSave": Color(0.25, 0.5, 0.8),
+		"BtnLoad": Color(0.35, 0.45, 0.75),
+		"BtnMute": Color(0.5, 0.35, 0.65),
+		"BtnAvatar": Color(0.75, 0.4, 0.55),
+	}
+	if panel.has_node("CircleActions"):
+		return
+	var flow := HFlowContainer.new()
+	flow.name = "CircleActions"
+	flow.alignment = FlowContainer.ALIGNMENT_CENTER
+	flow.add_theme_constant_override("h_separation", 10)
+	flow.add_theme_constant_override("v_separation", 10)
+	panel.add_child(flow)
+	panel.move_child(flow, 2)
+	for n in names:
+		if not panel.has_node(n):
+			continue
+		var b: Button = panel.get_node(n)
+		panel.remove_child(b)
+		flow.add_child(b)
+		b.text = str(labels.get(n, b.text))
+		UiCircle.apply(b, UiCircle.ACTION_SIZE, accents.get(n, Color(0.22, 0.48, 0.78)))
+
+func _style_static_circles() -> void:
+	## Style all remaining scene buttons as true circles (≥48dp).
+	var touch_accent := Color(0.2, 0.45, 0.75)
+	if has_node("Root/TouchPad"):
+		for n in ["BtnLeft", "BtnRight", "BtnJump", "BtnPunch", "BtnPlace", "BtnHotPrev", "BtnHotNext"]:
+			if not has_node("Root/TouchPad/%s" % n):
+				continue
+			var b: Button = get_node("Root/TouchPad/%s" % n)
+			var sz := UiCircle.TOUCH_SIZE
+			if n in ["BtnHotPrev", "BtnHotNext"]:
+				sz = UiCircle.HOTBAR_SIZE
+			UiCircle.apply(b, sz, touch_accent)
+			var w := sz
+			var h := sz
+			if n == "BtnLeft":
+				b.offset_left = 16.0
+				b.offset_right = 16.0 + w
+				b.offset_top = -16.0 - h
+				b.offset_bottom = -16.0
+			elif n == "BtnRight":
+				b.offset_left = 16.0 + w + 8.0
+				b.offset_right = 16.0 + w + 8.0 + w
+				b.offset_top = -16.0 - h
+				b.offset_bottom = -16.0
+			elif n == "BtnJump":
+				b.offset_left = -16.0 - w
+				b.offset_right = -16.0
+				b.offset_top = -16.0 - h
+				b.offset_bottom = -16.0
+			elif n == "BtnPunch":
+				b.offset_left = -16.0 - w * 2.0 - 8.0
+				b.offset_right = -16.0 - w - 8.0
+				b.offset_top = -16.0 - h
+				b.offset_bottom = -16.0
+			elif n == "BtnPlace":
+				b.offset_left = -16.0 - w * 2.0 - 8.0
+				b.offset_right = -16.0 - w - 8.0
+				b.offset_top = -16.0 - h * 2.0 - 8.0
+				b.offset_bottom = -16.0 - h - 8.0
+			elif n == "BtnHotPrev":
+				b.offset_left = -340.0 - w
+				b.offset_right = -340.0
+				b.offset_top = -12.0 - h
+				b.offset_bottom = -12.0
+			elif n == "BtnHotNext":
+				b.offset_left = 340.0
+				b.offset_right = 340.0 + w
+				b.offset_top = -12.0 - h
+				b.offset_bottom = -12.0
+	if has_node("Root/Craft/Panel/VBox/BtnClose"):
+		UiCircle.apply($Root/Craft/Panel/VBox/BtnClose, UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
+	if has_node("Root/WeatherUI/Panel/VBox/BtnAuto"):
+		UiCircle.apply($Root/WeatherUI/Panel/VBox/BtnAuto, UiCircle.ACTION_SIZE, Color(0.85, 0.65, 0.2))
+	if has_node("Root/WeatherUI/Panel/VBox/BtnClose"):
+		$Root/WeatherUI/Panel/VBox/BtnClose.text = "Close"
+		UiCircle.apply($Root/WeatherUI/Panel/VBox/BtnClose, UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
+	if has_node("Root/AvatarUI/Panel/VBox"):
+		for n in ["BtnSkin", "BtnHair", "BtnClothes", "BtnAccessory", "BtnClose"]:
+			if not has_node("Root/AvatarUI/Panel/VBox/%s" % n):
+				continue
+			var ab: Button = get_node("Root/AvatarUI/Panel/VBox/%s" % n)
+			match n:
+				"BtnSkin":
+					ab.text = "Skin"
+				"BtnHair":
+					ab.text = "Hair"
+				"BtnClothes":
+					ab.text = "Fit"
+				"BtnAccessory":
+					ab.text = "Acc"
+				"BtnClose":
+					ab.text = "Done"
+			UiCircle.apply(ab, UiCircle.ACTION_SIZE, Color(0.7, 0.4, 0.55))
+	if has_node("Root/Backpack/Panel/VBox/BtnClose"):
+		$Root/Backpack/Panel/VBox/BtnClose.text = "Close"
+		UiCircle.apply($Root/Backpack/Panel/VBox/BtnClose, UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
+
