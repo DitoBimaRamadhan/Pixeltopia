@@ -93,6 +93,37 @@ func try_craft(recipe: Dictionary) -> bool:
 	add_item(int(recipe["result"]), int(recipe.get("result_count", 1)))
 	return true
 
+func try_splice(seed_a: int, seed_b: int) -> Dictionary:
+	## Consume one of each seed; add result seed to backpack.
+	## Returns {ok, result, error} — Growtopia-inspired discovery, original recipes.
+	const Splicing = preload("res://scripts/splicing.gd")
+	var out := {"ok": false, "result": -1, "error": ""}
+	if seed_a == seed_b:
+		out["error"] = "Pick two different seeds."
+		return out
+	if not Tiles.is_seed(seed_a) or not Tiles.is_seed(seed_b):
+		out["error"] = "Both slots must be seeds."
+		return out
+	var res: int = Splicing.result_of(seed_a, seed_b)
+	if res < 0:
+		out["error"] = "Those seeds do not splice together."
+		return out
+	if count_of(seed_a) < 1 or count_of(seed_b) < 1:
+		out["error"] = "Need at least 1 of each seed."
+		return out
+	if not consume_item(seed_a, 1):
+		out["error"] = "Could not consume first seed."
+		return out
+	if not consume_item(seed_b, 1):
+		## refund first seed on failure
+		add_item(seed_a, 1)
+		out["error"] = "Could not consume second seed."
+		return out
+	add_item(res, 1)
+	out["ok"] = true
+	out["result"] = res
+	return out
+
 func add_item(id: int, n: int = 1) -> void:
 	if id < 0 or n <= 0:
 		return

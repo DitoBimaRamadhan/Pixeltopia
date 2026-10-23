@@ -3,6 +3,7 @@ extends CanvasLayer
 
 const Items = preload("res://scripts/items.gd")
 const RecipesData = preload("res://scripts/recipes.gd")
+const SplicingData = preload("res://scripts/splicing.gd")
 
 @onready var inv: Node = get_parent().get_node("Inventory")
 @onready var player: Node2D = get_parent().get_node("Player")
@@ -24,6 +25,7 @@ var backpack_open: bool = false
 var avatar_open: bool = false
 var shop_open: bool = false
 var quest_open: bool = false
+var splice_open: bool = false
 var _backpack_pick: int = -1
 var _dirty: bool = false
 var _main: Node = null
@@ -34,6 +36,12 @@ var _shop_status: Label = null
 var _quest_root: ColorRect = null
 var _quest_list: VBoxContainer = null
 var _quest_status: Label = null
+var _splice_root: ColorRect = null
+var _splice_list: VBoxContainer = null
+var _splice_status: Label = null
+var _splice_a: int = -1
+var _splice_b: int = -1
+var _splice_pick_slot: int = 0  ## 0 = picking A, 1 = picking B
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -47,7 +55,7 @@ func set_dirty(v: bool) -> void:
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D move · Jump · LMB punch · RMB place · Q/G drop · 1-7 hotbar · C craft · B bag · P store · Esc · Punch Quill=quest"
+	hint.text = "A/D move · Jump · LMB/RMB · Q/G drop · C craft · Y splice · B bag · P store · Esc · Punch Quill=quest"
 	inv.changed.connect(_on_inv_changed)
 	if inv.has_signal("gems_changed"):
 		inv.gems_changed.connect(_on_gems_changed)
@@ -74,7 +82,9 @@ func _ready() -> void:
 	_setup_gems_label()
 	_build_shop_ui()
 	_build_quest_ui()
+	_build_splice_ui()
 	_add_drop_touch_btn()
+	_add_splice_btn()
 	_add_store_btn()
 	_style_static_circles()
 	if player.has_signal("weather_machine_used"):
@@ -126,6 +136,8 @@ func _on_inv_changed() -> void:
 		_rebuild_backpack()
 	if shop_open:
 		_rebuild_shop()
+	if splice_open:
+		_rebuild_splice()
 	if _gems_lbl:
 		_gems_lbl.text = "Gems: %d" % inv.gems
 
@@ -164,6 +176,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				open_shop()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_Y and not paused:
+			if splice_open:
+				close_splice()
+			else:
+				open_splice()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_ESCAPE:
 			if craft_open:
 				close_craft()
@@ -175,6 +194,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_shop()
 			elif quest_open:
 				close_quest()
+			elif splice_open:
+				close_splice()
 			elif avatar_open:
 				close_avatar()
 			else:
@@ -225,7 +246,7 @@ func _set_craft_visible(v: bool) -> void:
 	craft_panel.visible = v
 
 func _emit_block_input() -> void:
-	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open)
+	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open or splice_open)
 
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
@@ -503,6 +524,8 @@ func _close_overlays_except(keep: String) -> void:
 		close_shop()
 	if keep != "quest" and quest_open:
 		close_quest()
+	if keep != "splice" and splice_open:
+		close_splice()
 
 func _make_modal(name: String, title_text: String) -> Dictionary:
 	var root := ColorRect.new()
@@ -718,6 +741,178 @@ func _rebuild_quest() -> void:
 		row.add_child(reward)
 		row.add_child(btns)
 		_quest_list.add_child(row)
+
+
+func _add_splice_btn() -> void:
+	var b := UiCircle.make_button("Splice", UiCircle.ACTION_SIZE, Color(0.55, 0.35, 0.85))
+	b.name = "BtnSplice"
+	b.position = Vector2(520, 8)
+	b.pressed.connect(func() -> void:
+		if splice_open:
+			close_splice()
+		else:
+			open_splice()
+		Sfx.play_ui())
+	$Root.add_child(b)
+
+func _build_splice_ui() -> void:
+	var ui := _make_modal("SpliceUI", "Seed Splice — Discovery")
+	_splice_root = ui["root"]
+	_splice_list = ui["list"]
+	_splice_status = ui["status"]
+	_splice_status.text = "Pick two different seeds, then Splice. Result goes to your backpack."
+	ui["close"].pressed.connect(close_splice)
+
+func open_splice() -> void:
+	if paused:
+		return
+	_close_overlays_except("splice")
+	splice_open = true
+	_splice_a = -1
+	_splice_b = -1
+	_splice_pick_slot = 0
+	_splice_root.visible = true
+	_rebuild_splice()
+	Sfx.play_ui()
+	_emit_block_input()
+
+func close_splice() -> void:
+	splice_open = false
+	_splice_a = -1
+	_splice_b = -1
+	_splice_pick_slot = 0
+	if _splice_root:
+		_splice_root.visible = false
+	_emit_block_input()
+
+func _rebuild_splice() -> void:
+	for c in _splice_list.get_children():
+		c.queue_free()
+	var pick_lbl := Label.new()
+	var slot_name := "Seed 1" if _splice_pick_slot == 0 else "Seed 2"
+	pick_lbl.text = "Selecting: %s  |  Seed1: %s  ·  Seed2: %s" % [
+		slot_name,
+		Items.display_name(_splice_a) if _splice_a >= 0 else "—",
+		Items.display_name(_splice_b) if _splice_b >= 0 else "—",
+	]
+	pick_lbl.add_theme_font_size_override("font_size", 13)
+	pick_lbl.add_theme_color_override("font_color", Color(1.0, 0.92, 0.65))
+	pick_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_splice_list.add_child(pick_lbl)
+
+	var tip := Label.new()
+	tip.text = "Spliced seeds keep farmable gem/seed drops. Higher rarity = more gems."
+	tip.add_theme_font_size_override("font_size", 11)
+	tip.add_theme_color_override("font_color", Color(0.8, 0.9, 1.0))
+	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_splice_list.add_child(tip)
+
+	var seed_ids: Array = SplicingData.all_seed_ids()
+	for sid in seed_ids:
+		var have: int = inv.count_of(int(sid))
+		var row := HBoxContainer.new()
+		var lab := Label.new()
+		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		lab.text = "%s ×%d  [%s]\n%s" % [
+			Items.display_name(int(sid)), have,
+			Items.rarity_name(int(sid)),
+			Items.description(int(sid)),
+		]
+		lab.add_theme_font_size_override("font_size", 12)
+		lab.add_theme_color_override("font_color", Items.rarity_color(int(sid)))
+		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		var pick := UiCircle.make_button("Use", UiCircle.COMPACT_SIZE, Color(0.4, 0.45, 0.85))
+		pick.disabled = have < 1
+		var id_copy: int = int(sid)
+		pick.pressed.connect(func() -> void: _splice_pick(id_copy))
+		row.add_child(lab)
+		row.add_child(pick)
+		_splice_list.add_child(row)
+
+	var preview := Label.new()
+	var res_id: int = SplicingData.result_of(_splice_a, _splice_b) if _splice_a >= 0 and _splice_b >= 0 else -1
+	if res_id >= 0:
+		preview.text = "Result preview: %s [%s]" % [Items.display_name(res_id), Items.rarity_name(res_id)]
+		preview.add_theme_color_override("font_color", Items.rarity_color(res_id))
+	elif _splice_a >= 0 and _splice_b >= 0:
+		preview.text = "No known splice for that pair."
+		preview.add_theme_color_override("font_color", Color(1.0, 0.55, 0.45))
+	else:
+		preview.text = "Pick Seed 1 and Seed 2 to preview the discovery."
+		preview.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
+	preview.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	preview.add_theme_font_size_override("font_size", 14)
+	_splice_list.add_child(preview)
+
+	var actions := HBoxContainer.new()
+	actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	var clear_btn := UiCircle.make_button("Clear", UiCircle.COMPACT_SIZE, Color(0.5, 0.4, 0.4))
+	clear_btn.pressed.connect(func() -> void:
+		_splice_a = -1
+		_splice_b = -1
+		_splice_pick_slot = 0
+		_splice_status.text = "Cleared. Pick two seeds."
+		Sfx.play_ui()
+		_rebuild_splice())
+	var do_btn := UiCircle.make_button("Splice", UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.85))
+	do_btn.disabled = res_id < 0
+	do_btn.pressed.connect(_do_splice)
+	actions.add_child(clear_btn)
+	actions.add_child(do_btn)
+	_splice_list.add_child(actions)
+
+	var known := Label.new()
+	known.text = "—— Known recipes ——"
+	known.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_splice_list.add_child(known)
+	for pair in SplicingData.known_pairs():
+		var pl := Label.new()
+		pl.text = str(pair.get("blurb", ""))
+		pl.add_theme_font_size_override("font_size", 11)
+		pl.add_theme_color_override("font_color", Color(0.75, 0.85, 1.0))
+		_splice_list.add_child(pl)
+
+func _splice_pick(seed_id: int) -> void:
+	if inv.count_of(seed_id) < 1:
+		_splice_status.text = "You do not have that seed."
+		Sfx.play_ui()
+		return
+	if _splice_pick_slot == 0:
+		_splice_a = seed_id
+		_splice_pick_slot = 1
+		_splice_status.text = "Seed 1 set. Now pick Seed 2 (must be different)."
+	else:
+		if seed_id == _splice_a:
+			_splice_status.text = "Pick a different seed for Seed 2."
+			Sfx.play_ui()
+			_rebuild_splice()
+			return
+		_splice_b = seed_id
+		_splice_pick_slot = 0
+		var res: int = SplicingData.result_of(_splice_a, _splice_b)
+		if res >= 0:
+			_splice_status.text = "Ready! Result: %s" % Items.display_name(res)
+		else:
+			_splice_status.text = "Unknown pair — try another combination."
+	Sfx.play_ui()
+	_rebuild_splice()
+
+func _do_splice() -> void:
+	var out: Dictionary = inv.try_splice(_splice_a, _splice_b)
+	if bool(out.get("ok", false)):
+		var rid: int = int(out["result"])
+		_splice_status.text = "Discovered %s [%s]! Added to backpack." % [
+			Items.display_name(rid), Items.rarity_name(rid)]
+		Sfx.play_craft()
+		_splice_a = -1
+		_splice_b = -1
+		_splice_pick_slot = 0
+		if _main != null and _main.has_method("notify_spliced"):
+			_main.notify_spliced()
+	else:
+		_splice_status.text = str(out.get("error", "Splice failed."))
+		Sfx.play_ui()
+	_rebuild_splice()
 
 func _pause_btn(name: String) -> Button:
 	var p2 := "Root/Pause/Panel/CircleActions/%s" % name

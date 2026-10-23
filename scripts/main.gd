@@ -15,7 +15,7 @@ var dirty: bool = false
 func _ready() -> void:
 	var _who := Session.username if Session and Session.username else "player"
 	var _mode := "offline" if Session and Session.offline_mode else "online"
-	DisplayServer.window_set_title("Pixeltopia — v0.8 (%s / %s)" % [_who, _mode])
+	DisplayServer.window_set_title("Pixeltopia — v1.1 (%s / %s)" % [_who, _mode])
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)
@@ -37,6 +37,9 @@ func _on_crops_harvested(n: int) -> void:
 
 func notify_planted() -> void:
 	quests.report("plant_seeds", 1)
+
+func notify_spliced() -> void:
+	quests.report("splice_seeds", 1)
 
 func _on_pause(paused: bool) -> void:
 	player.paused = paused

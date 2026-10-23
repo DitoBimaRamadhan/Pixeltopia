@@ -1,7 +1,5 @@
 extends Node
 ## Simple single-player quest tracker for Pixeltopia (original quests).
-
-## Simple single-player quest tracker for Pixeltopia (original quests).
 const Items = preload("res://scripts/items.gd")
 
 signal changed
@@ -12,7 +10,7 @@ static func defs() -> Array:
 	{
 		"id": "harvest_10",
 		"title": "First Harvest",
-		"blurb": "Harvest 10 mature crops (Groveberry or Azureoot).",
+		"blurb": "Harvest 10 mature crops (any farmable crop).",
 		"goal": 10,
 		"type": "harvest_crops",
 		"reward_gems": 40,
@@ -28,6 +26,16 @@ static func defs() -> Array:
 		"reward_gems": 25,
 		"reward_item": Tiles.Id.SEED_AZURE,
 		"reward_count": 4,
+	},
+	{
+		"id": "splice_3",
+		"title": "Seed Discovery",
+		"blurb": "Splice seeds 3 times (Y key or Splice button) to discover new crops.",
+		"goal": 3,
+		"type": "splice_seeds",
+		"reward_gems": 50,
+		"reward_item": Tiles.Id.SEED_EMBER,
+		"reward_count": 2,
 	},
 	]
 
