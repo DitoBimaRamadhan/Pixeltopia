@@ -1,15 +1,9 @@
-# Export artifacts
+# Pixeltopia Android APK
 
-- **`Pixeltopia.apk`** — Godot 4.3 Android **debug** build (version **0.5.0**).
-- Includes Phase 2 + v0.4 drops/shop/quests, plus legacy Pixel Sandbox import under `imported/` (excluded from the APK pack).
-- Release: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.5.0
-- Direct APK: https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.5.0/Pixeltopia.apk
+**Latest:** [v0.9.0 Release](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.9.0)
 
-Keystores (`*.keystore`) are gitignored. Rebuild:
+**Direct download:** [Pixeltopia.apk](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.9.0/Pixeltopia.apk)
 
-```bash
-export JAVA_HOME=/workspace/tools/jdk/jdk-17.0.21+9
-export PATH="$JAVA_HOME/bin:$PATH"
-/workspace/tools/Godot_v4.3-stable_linux.x86_64 --headless --path . \
-  --export-debug Android export/Pixeltopia.apk
-```
+v0.9.0 — all UI buttons are true circles (≥48dp touch targets). Original Pixeltopia branding (not affiliated with Growtopia).
+
+Debug-signed APK (`com.pixeltopia.game`). Enable “Install unknown apps” on your device if needed.
