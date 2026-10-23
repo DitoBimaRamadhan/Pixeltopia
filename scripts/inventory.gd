@@ -10,8 +10,8 @@ var selected: int = 0  ## hotbar index
 
 func _ready() -> void:
 	# Fist + starter materials (Wood for crafting Plank/Torch)
-	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH]
-	counts = [0, 64, 32, 16, 16, 32, 8]
+	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.SEED_AZURE]
+	counts = [0, 64, 32, 16, 16, 32, 8, 24, 8]
 	changed.emit()
 
 func slot_count() -> int:

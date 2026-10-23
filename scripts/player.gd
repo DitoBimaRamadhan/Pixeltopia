@@ -88,12 +88,13 @@ func _spawn_float(text: String, color: Color = Color(1.0, 0.92, 0.45)) -> void:
 
 func _punch_or_use(t: Vector2i) -> void:
 	var id: int = world.get_tile(t.x, t.y)
-	if id == Tiles.Id.CROP:
+	if Tiles.is_crop(id):
 		var drop: int = world.try_harvest(t.x, t.y)
 		if drop >= 0:
 			inv.add_item(drop, 1)
-			inv.add_item(Tiles.Id.SEED, 1)
-			_spawn_float("+1 Groveberry", Color(1.0, 0.55, 0.75))
+			inv.add_item(Tiles.seed_for_crop(drop), 1)
+			var nm: String = Tiles.NAMES.get(drop, "Crop")
+			_spawn_float("+1 %s" % nm, Tiles.color(drop).lightened(0.35))
 		return
 	if id != Tiles.Id.AIR:
 		var drop2: int = world.break_tile(t.x, t.y)

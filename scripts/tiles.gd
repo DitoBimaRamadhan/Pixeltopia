@@ -14,6 +14,9 @@ enum Id {
 	WOOD = 6,       ## placeable wood block
 	TORCH = 7,      ## decorative light (non-solid)
 	PLANK = 8,      ## crafted wood plank (solid)
+	SAND = 9,       ## soft sand block (solid)
+	SEED_AZURE = 10, ## Azureoot seed (growing)
+	CROP_AZURE = 11, ## Azureoot mature
 }
 
 const NAMES := {
@@ -26,20 +29,45 @@ const NAMES := {
 	Id.WOOD: "Wood",
 	Id.TORCH: "Torch",
 	Id.PLANK: "Plank",
+	Id.SAND: "Sand",
+	Id.SEED_AZURE: "Azureoot Seed",
+	Id.CROP_AZURE: "Azureoot",
 }
 
-## Solid for collision?
 static func is_solid(id: int) -> bool:
-	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD or id == Id.PLANK
+	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
+		or id == Id.PLANK or id == Id.SAND
 
-## Can plant a seed on top of this block (into air cell above)?
 static func is_soil(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS
 
-## Can be placed into an empty cell from inventory?
 static func is_placeable(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
-		or id == Id.TORCH or id == Id.SEED or id == Id.PLANK
+		or id == Id.TORCH or id == Id.SEED or id == Id.PLANK or id == Id.SAND \
+		or id == Id.SEED_AZURE
+
+static func is_seed(id: int) -> bool:
+	return id == Id.SEED or id == Id.SEED_AZURE
+
+static func is_crop(id: int) -> bool:
+	return id == Id.CROP or id == Id.CROP_AZURE
+
+static func seed_for_crop(crop_id: int) -> int:
+	if crop_id == Id.CROP_AZURE:
+		return Id.SEED_AZURE
+	return Id.SEED
+
+static func grow_seconds(seed_id: int) -> float:
+	if seed_id == Id.SEED_AZURE:
+		return 12.0
+	if seed_id == Id.SEED:
+		return 8.0
+	return -1.0
+
+static func crop_for_seed(seed_id: int) -> int:
+	if seed_id == Id.SEED_AZURE:
+		return Id.CROP_AZURE
+	return Id.CROP
 
 static func color(id: int) -> Color:
 	match id:
@@ -59,5 +87,11 @@ static func color(id: int) -> Color:
 			return Color(0.95, 0.75, 0.25)
 		Id.PLANK:
 			return Color(0.78, 0.58, 0.32)
+		Id.SAND:
+			return Color(0.90, 0.82, 0.55)
+		Id.SEED_AZURE:
+			return Color(0.40, 0.70, 0.95)
+		Id.CROP_AZURE:
+			return Color(0.35, 0.55, 1.0)
 		_:
 			return Color(0, 0, 0, 0)

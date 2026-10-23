@@ -5,7 +5,7 @@ signal world_changed
 
 const W := 64
 const H := 40
-const GROW_SEC := 8.0  ## seed -> crop
+## Groveberry ~8s; Azureoot ~12s (via Tiles.grow_seconds)
 const SAVE_PATH := "user://pixeltopia_save.json"
 
 var grid: PackedInt32Array = PackedInt32Array()
@@ -36,7 +36,7 @@ func set_tile(x: int, y: int, id: int) -> void:
 		return
 	grid[idx(x, y)] = id
 	var key := "%d,%d" % [x, y]
-	if id != Tiles.Id.SEED:
+	if not Tiles.is_seed(id):
 		plant_times.erase(key)
 	world_changed.emit()
 	queue_redraw()
@@ -87,10 +87,10 @@ func break_tile(x: int, y: int) -> int:
 	if id == Tiles.Id.AIR:
 		return -1
 	var drop := id
-	if id == Tiles.Id.SEED:
+	if Tiles.is_seed(id):
 		drop = -1  ## lose unripe plant
-	elif id == Tiles.Id.CROP:
-		drop = Tiles.Id.CROP
+	elif Tiles.is_crop(id):
+		drop = id
 	set_tile(x, y, Tiles.Id.AIR)
 	return drop
 
@@ -99,13 +99,13 @@ func place_tile(x: int, y: int, id: int) -> bool:
 		return false
 	if get_tile(x, y) != Tiles.Id.AIR:
 		return false
-	if id == Tiles.Id.SEED:
+	if Tiles.is_seed(id):
 		if y + 1 >= H or not Tiles.is_soil(get_tile(x, y + 1)):
 			return false
-		set_tile(x, y, Tiles.Id.SEED)
+		set_tile(x, y, id)
 		plant_times["%d,%d" % [x, y]] = Time.get_ticks_msec() / 1000.0
 		return true
-	if id == Tiles.Id.CROP:
+	if Tiles.is_crop(id):
 		return false
 	if not Tiles.is_placeable(id):
 		return false
@@ -113,25 +113,34 @@ func place_tile(x: int, y: int, id: int) -> bool:
 	return true
 
 func try_harvest(x: int, y: int) -> int:
-	if get_tile(x, y) != Tiles.Id.CROP:
+	var id := get_tile(x, y)
+	if not Tiles.is_crop(id):
 		return -1
 	set_tile(x, y, Tiles.Id.AIR)
-	return Tiles.Id.CROP
+	return id
 
 func _tick_growth() -> void:
 	var now := Time.get_ticks_msec() / 1000.0
 	var grown: Array = []
 	for key in plant_times.keys():
 		var t0: float = plant_times[key]
-		if now - t0 >= GROW_SEC:
+		var parts0: PackedStringArray = str(key).split(",")
+		var sx := int(parts0[0])
+		var sy := int(parts0[1])
+		var sid := get_tile(sx, sy)
+		var need := Tiles.grow_seconds(sid)
+		if need < 0.0:
+			continue
+		if now - t0 >= need:
 			grown.append(key)
 	for key in grown:
 		var parts: PackedStringArray = key.split(",")
 		var x := int(parts[0])
 		var y := int(parts[1])
-		if get_tile(x, y) == Tiles.Id.SEED:
+		var sid2 := get_tile(x, y)
+		if Tiles.is_seed(sid2):
 			plant_times.erase(key)
-			set_tile(x, y, Tiles.Id.CROP)
+			set_tile(x, y, Tiles.crop_for_seed(sid2))
 
 func to_save() -> Dictionary:
 	var arr: Array = []
@@ -186,8 +195,16 @@ func _draw() -> void:
 				draw_line(r.position + Vector2(0, 8), r.position + Vector2(Tiles.SIZE, 8), c.darkened(0.3), 1.0)
 				draw_line(r.position + Vector2(0, 16), r.position + Vector2(Tiles.SIZE, 16), c.darkened(0.3), 1.0)
 				draw_line(r.position + Vector2(0, 24), r.position + Vector2(Tiles.SIZE, 24), c.darkened(0.3), 1.0)
-			elif id == Tiles.Id.SEED:
-				draw_rect(Rect2(r.position + Vector2(12, 16), Vector2(8, 16)), Color(0.2, 0.5, 0.2))
+			elif id == Tiles.Id.SAND:
+				draw_circle(r.position + Vector2(8, 10), 2.0, c.darkened(0.15))
+				draw_circle(r.position + Vector2(22, 18), 2.5, c.darkened(0.2))
+			elif id == Tiles.Id.SEED or id == Tiles.Id.SEED_AZURE:
+				var stem := Color(0.2, 0.5, 0.2) if id == Tiles.Id.SEED else Color(0.2, 0.4, 0.65)
+				draw_rect(Rect2(r.position + Vector2(12, 16), Vector2(8, 16)), stem)
 			elif id == Tiles.Id.CROP:
 				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.95, 0.4, 0.6))
 				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.25, 0.55, 0.25))
+			elif id == Tiles.Id.CROP_AZURE:
+				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.4, 0.55, 1.0))
+				draw_circle(r.get_center() + Vector2(-4, -6), 3.0, Color(0.75, 0.9, 1.0))
+				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.2, 0.35, 0.55))
