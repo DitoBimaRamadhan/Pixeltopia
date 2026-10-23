@@ -16,12 +16,13 @@ var selected: int = 0  ## hotbar index
 var gems: int = 25  ## starter pocket change
 
 func _ready() -> void:
-	# Fist + starter materials + empty backpack slots
-	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.WORLD_LOCK]
-	counts = [0, 64, 32, 16, 16, 32, 8, 24, 1]
+	# Fist + starter materials + empty backpack slots (+ World Lock for named-world ownership)
+	slots = [-1, Tiles.Id.DIRT, Tiles.Id.GRASS, Tiles.Id.STONE, Tiles.Id.SEED, Tiles.Id.WOOD, Tiles.Id.TORCH, Tiles.Id.SAND, Tiles.Id.SEED_AZURE]
+	counts = [0, 64, 32, 16, 16, 32, 8, 24, 8]
 	for _i in range(BASE_BACKPACK_SLOTS):
 		slots.append(-1)
 		counts.append(0)
+	add_item(Tiles.Id.WORLD_LOCK, 1)
 	changed.emit()
 	gems_changed.emit(gems)
 
@@ -276,9 +277,19 @@ func from_save(data: Dictionary) -> void:
 		counts.clear()
 		for v in data["counts"]:
 			counts.append(int(v))
+	## Stability: keep slots/counts aligned (corrupt / version-skewed saves).
+	while counts.size() < slots.size():
+		counts.append(0)
+	while slots.size() < counts.size():
+		slots.append(-1)
+	if slots.is_empty():
+		slots = [-1]
+		counts = [0]
 	if data.has("selected"):
-		selected = int(data["selected"])
+		selected = clampi(int(data["selected"]), 0, maxi(slots.size() - 1, 0))
+	else:
+		selected = clampi(selected, 0, maxi(slots.size() - 1, 0))
 	if data.has("gems"):
-		gems = int(data["gems"])
+		gems = maxi(int(data["gems"]), 0)
 	changed.emit()
 	gems_changed.emit(gems)

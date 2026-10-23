@@ -237,6 +237,17 @@ static func catalog() -> Dictionary:
 			"farmable": true,
 			"seed_drop": Tiles.Id.SEED_CRYSTAL,
 		},
+		Tiles.Id.WORLD_LOCK: {
+			"id": Tiles.Id.WORLD_LOCK,
+			"name": "World Lock",
+			"description": "Place to lock a named world. Only you can punch/place until broken.",
+			"rarity": Rarity.EPIC,
+			"sell": 50,
+			"buy": 200,
+			"can_drop": true,
+			"farmable": false,
+			"seed_drop": -1,
+		},
 	}
 
 static func get_info(id: int) -> Dictionary:

@@ -454,6 +454,9 @@ func _draw() -> void:
 				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.4, 0.55, 1.0))
 				draw_circle(r.get_center() + Vector2(-4, -6), 3.0, Color(0.75, 0.9, 1.0))
 				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.2, 0.35, 0.55))
+			elif id == Tiles.Id.WORLD_LOCK:
+				draw_rect(Rect2(r.position + Vector2(6, 6), Vector2(20, 20)), Color(1.0, 0.85, 0.2))
+				draw_circle(r.get_center(), 6.0, Color(0.55, 0.35, 0.1))
 			elif id == Tiles.Id.WEATHER_MACHINE:
 				draw_rect(Rect2(r.position + Vector2(4, 8), Vector2(24, 24)), Color(0.25, 0.35, 0.5))
 				draw_rect(Rect2(r.position + Vector2(6, 10), Vector2(20, 14)), Color(0.4, 0.75, 1.0))

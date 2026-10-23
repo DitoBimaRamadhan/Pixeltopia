@@ -25,6 +25,7 @@ enum Id {
 	CROP_MOON = 17, ## Moonpetal mature
 	SEED_CRYSTAL = 18, ## Crystalroot seed (splice discovery)
 	CROP_CRYSTAL = 19, ## Crystalroot mature
+	WORLD_LOCK = 20, ## locks named world to owner
 }
 
 const NAMES := {
@@ -48,11 +49,12 @@ const NAMES := {
 	Id.CROP_MOON: "Moonpetal",
 	Id.SEED_CRYSTAL: "Crystalroot Seed",
 	Id.CROP_CRYSTAL: "Crystalroot",
+	Id.WORLD_LOCK: "World Lock",
 }
 
 static func is_solid(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
-		or id == Id.PLANK or id == Id.SAND
+		or id == Id.PLANK or id == Id.SAND or id == Id.WORLD_LOCK
 
 static func is_soil(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS
@@ -61,7 +63,8 @@ static func is_placeable(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
 		or id == Id.TORCH or id == Id.SEED or id == Id.PLANK or id == Id.SAND \
 		or id == Id.SEED_AZURE or id == Id.WEATHER_MACHINE \
-		or id == Id.SEED_EMBER or id == Id.SEED_MOON or id == Id.SEED_CRYSTAL
+		or id == Id.SEED_EMBER or id == Id.SEED_MOON or id == Id.SEED_CRYSTAL \
+		or id == Id.WORLD_LOCK
 
 static func is_seed(id: int) -> bool:
 	return id == Id.SEED or id == Id.SEED_AZURE or id == Id.SEED_EMBER \
@@ -156,5 +159,7 @@ static func color(id: int) -> Color:
 			return Color(0.55, 1.0, 0.95)
 		Id.CROP_CRYSTAL:
 			return Color(0.35, 0.95, 0.90)
+		Id.WORLD_LOCK:
+			return Color(1.0, 0.85, 0.25)
 		_:
 			return Color(0, 0, 0, 0)
