@@ -48,6 +48,10 @@ Headless check:
 
 Multiplayer, economy, trade, chat, accounts — later phases.
 
+## Next: Phase 2
+
+See [PHASE2.md](PHASE2.md) for the planned single-player upgrades (more tiles/crops, craft UI, world gen, audio, touch). Phase 1 features stay intact.
+
 ## Project layout
 
 ```
@@ -57,4 +61,5 @@ pixeltopia/
   scripts/main.gd, world.gd, player.gd, inventory.gd, hud.gd, tiles.gd, floating_text.gd
   icon.svg
   README.md
+  PHASE2.md
 ```
