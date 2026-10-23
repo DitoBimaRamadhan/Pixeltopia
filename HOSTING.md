@@ -58,3 +58,13 @@ npm run loadtest -- 1000 20   # may need ulimit -n 4096
 - Android emulator: `http://10.0.2.2:8787`
 - Physical phone: set `Session.api_base_url` to your LAN/public URL (saved in `user://pixeltopia_session.cfg`)
 - **Mainkan Offline** always available if the backend is down
+
+
+## Measured on this box (2026-10-23)
+
+| Test | Result |
+|------|--------|
+| `npm run loadtest -- 100 12` | **PASS** — 100/100 WS, ~112 MB RSS, no crash |
+| `npm run loadtest -- 1000 12` (4 shards × 250) | **PASS** — 1000/1000 WS, ~344 MB RSS, no crash |
+
+Estimate: free 512 MB PaaS ≈ 100–200; 1–2 GB VPS / Oracle Always Free ≈ 500–1000 with defaults.
