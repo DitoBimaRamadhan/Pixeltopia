@@ -74,6 +74,28 @@ Lighting and atmosphere for Phase 2. **Sun only** as the primary light source �
 - [ ] Torch and other local lights still work at night; global fill light remains sun-based only
 - [ ] Persist current weather / period in save JSON (with a version-friendly field)
 
+
+### 2.9 Characters (avatar)
+
+Pixel-art 2D player avatar in a **Growtopia-like feel** (small body, simple face) — **original art only**, never Growtopia assets, logos, or copied sprites.
+
+- [ ] Replace the Phase 1 solid-color player rect with a small **customizable** character: skin color, hair, clothes, accessories
+- [ ] Walk / jump / face direction in the Pixeltopia world using existing Phase 1 controls
+- [ ] Simple character customize UI (from pause or a wardrobe item) that saves with the world save JSON
+- [ ] Hotbar / inventory icons can preview the equipped look without breaking Phase 1 item rules
+
+
+### 2.10 UI / UX (sandbox-friendly)
+
+UI/UX should **feel similar to Growtopia-style sandboxes** (bright colors, pixel icons, newbie-friendly layout) while staying **original** — no copied Growtopia HUD, fonts, or branding.
+
+- [ ] **Hotbar** anchored along the **bottom** of the screen (keep Phase 1 1–7 slots; polish icons and selection highlight)
+- [ ] **Inventory / backpack** panel that opens/closes (key or button); drag or click to move items to/from hotbar
+- [ ] **Simple action buttons** (especially for touch): jump, punch/break, place/plant — clear labels/icons
+- [ ] **Pause / resume** menu polish (Esc): Resume, Save, Load, Settings — readable pixel-friendly styling
+- [ ] Overall look: bright palette, chunky pixel icons, large tap targets, short tooltips for new players
+- [ ] Connection-free single-player: no fake multiplayer chrome; focus on clarity of build/farm actions
+
 ## Explicitly later (not Phase 2 gameplay)
 
 | Topic | Note |
@@ -97,7 +119,7 @@ Lighting and atmosphere for Phase 2. **Sun only** as the primary light source �
 
 ## Success criteria
 
-Phase 2 is “done enough” when a player can: explore a slightly richer world, craft at least a few items through a UI, hear feedback, optionally use touch controls, change lighting via the weather machine (sun-only day periods + moods), and save/load without losing Phase 1 behavior.
+Phase 2 is “done enough” when a player can: explore a slightly richer world, craft at least a few items through a UI, hear feedback, optionally use touch controls, change lighting via the weather machine (sun-only day periods + moods), customize a small pixel avatar, use a bottom hotbar + backpack UI, and save/load without losing Phase 1 behavior.
 
 ## Suggested first tickets
 
@@ -106,4 +128,6 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 3. Place/break/harvest SFX + mute toggle
 4. Touch controls prototype
 5. Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
+6. Character customize (skin/hair/clothes/accessories) + walk in world
+7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
 
