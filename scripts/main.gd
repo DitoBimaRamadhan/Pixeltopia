@@ -9,17 +9,21 @@ const SAVE_PATH := "user://pixeltopia_save.json"
 @onready var hud: CanvasLayer = $HUD
 @onready var weather: CanvasModulate = $Weather
 @onready var quests: Node = $QuestLog
+@onready var progress: Node = $Progress
+@onready var achievements: Node = $AchievementLog
 
 var dirty: bool = false
 var net: Node = null
 var remotes: Node2D = null
 var _mp_chat_log: PackedStringArray = PackedStringArray()
 var _trade: Dictionary = {}
+var _rain_secs: float = 0.0
+var _night_logged: bool = false
 
 func _ready() -> void:
 	var _who := Session.username if Session and Session.username else "player"
 	var _mode := "offline" if Session and Session.offline_mode else "online"
-	DisplayServer.window_set_title("Pixeltopia — v1.5 (%s / %s)" % [_who, _mode])
+	DisplayServer.window_set_title("Pixeltopia — v1.6 (%s / %s)" % [_who, _mode])
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)
@@ -30,7 +34,32 @@ func _ready() -> void:
 	world.world_changed.connect(_mark_dirty)
 	inv.changed.connect(_mark_dirty)
 	hud.bind_main(self)
+	if inv.has_signal("gems_changed"):
+		inv.gems_changed.connect(_on_gems_for_badge)
+	if world.has_signal("tile_broken"):
+		world.tile_broken.connect(func(_p): _on_block_broken())
+	if progress.has_signal("leveled_up"):
+		progress.leveled_up.connect(_on_leveled_up)
+	if progress.has_signal("xp_changed"):
+		progress.xp_changed.connect(func(lv, xp, need):
+			if hud.has_method("set_xp_label"):
+				hud.set_xp_label(lv, xp, need)
+			achievements.report("reach_level", lv)
+		)
+	if achievements.has_signal("unlocked"):
+		achievements.unlocked.connect(func(id, title):
+			if hud.has_method("toast_badge"):
+				hud.toast_badge(title)
+		)
+	if weather.has_signal("changed"):
+		weather.changed.connect(_on_weather_changed)
+	# Apply GT-inspired theme once HUD is ready
+	if hud.has_method("apply_pixeltopia_theme"):
+		hud.apply_pixeltopia_theme()
+	if hud.has_method("set_xp_label"):
+		hud.set_xp_label(progress.level, progress.xp, progress.xp_to_next())
 	_setup_multiplayer()
+	_rain_secs = 0.0
 
 func _setup_multiplayer() -> void:
 	remotes = Node2D.new()
@@ -129,6 +158,11 @@ func _on_trade(data: Dictionary) -> void:
 		hud.on_trade_event(data)
 	# Apply inventory deltas on completed
 	if str(data.get("event", "")) == "completed" and net:
+		progress.report_trade()
+		achievements.report("trade_done", 1)
+		var _sfx = get_node_or_null("/root/Sfx")
+		if _sfx and _sfx.has_method("play_trade"):
+			_sfx.play_trade()
 		var take: Dictionary = data.get("take", {}).get(net.my_id, {})
 		var give: Dictionary = data.get("give", {}).get(net.my_id, {})
 		for it in take.get("items", []):
@@ -141,10 +175,21 @@ func _on_trade(data: Dictionary) -> void:
 			inv.add_gems(int(give.get("gems", 0)))
 		net.sync_inventory(inv)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if net and net.is_online():
 		var t: Vector2i = world.world_to_tile(player.global_position)
 		net.send_move(t.x, t.y, player.global_position.x, player.global_position.y)
+	if weather and weather.has_method("is_raining") and weather.is_raining():
+		_rain_secs += delta
+		if _rain_secs >= 1.0:
+			var whole := int(_rain_secs)
+			_rain_secs -= float(whole)
+			achievements.report("rain_time", whole)
+	if weather and int(weather.period) == 3 and not _night_logged:
+		_night_logged = true
+		achievements.report("night_seen", 1)
+	elif weather and int(weather.period) != 3:
+		_night_logged = false
 
 func _mark_dirty() -> void:
 	dirty = true
@@ -153,19 +198,42 @@ func _mark_dirty() -> void:
 
 func _on_crops_harvested(n: int) -> void:
 	quests.report("harvest_crops", n)
+	achievements.report("harvest_crops", n)
+	progress.report_harvest()
+
+func _on_block_broken() -> void:
+	achievements.report("break_blocks", 1)
+	progress.report_break()
+
+func _on_leveled_up(lv: int) -> void:
+	if hud.has_method("show_status"):
+		hud.show_status("Level up! Now Lv %d" % lv)
+	achievements.report("reach_level", lv)
+
+func _on_gems_for_badge(amount: int) -> void:
+	achievements.report("gems_held", amount)
+
+func _on_weather_changed() -> void:
+	if hud.has_method("refresh_clock"):
+		hud.refresh_clock()
 
 func notify_planted() -> void:
 	quests.report("plant_seeds", 1)
 
 func notify_spliced() -> void:
 	quests.report("splice_seeds", 1)
+	achievements.report("splice_seeds", 1)
+	progress.report_splice()
+	var _sfx = get_node_or_null("/root/Sfx")
+	if _sfx and _sfx.has_method("play_splice"):
+		_sfx.play_splice()
 
 func _on_pause(paused: bool) -> void:
 	player.paused = paused
 
 func save_game() -> void:
 	var data := {
-		"version": 5,
+		"version": 6,
 		"world": world.to_save(),
 		"inventory": inv.to_save(),
 		"player": {
@@ -175,6 +243,8 @@ func save_game() -> void:
 		},
 		"weather": weather.to_save(),
 		"quests": quests.to_save(),
+		"progress": progress.to_save(),
+		"achievements": achievements.to_save(),
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
 	if f == null:
@@ -185,7 +255,7 @@ func save_game() -> void:
 	dirty = false
 	if hud.has_method("set_dirty"):
 		hud.set_dirty(false)
-	hud.show_status("Saved (v5).")
+	hud.show_status("Saved (v6).")
 
 func load_game() -> void:
 	if not FileAccess.file_exists(SAVE_PATH):
@@ -214,6 +284,12 @@ func load_game() -> void:
 		weather.from_save(data["weather"])
 	if data.has("quests"):
 		quests.from_save(data["quests"])
+	if data.has("progress"):
+		progress.from_save(data["progress"])
+	if data.has("achievements"):
+		achievements.from_save(data["achievements"])
+	if hud.has_method("set_xp_label"):
+		hud.set_xp_label(progress.level, progress.xp, progress.xp_to_next())
 	dirty = false
 	if hud.has_method("set_dirty"):
 		hud.set_dirty(false)

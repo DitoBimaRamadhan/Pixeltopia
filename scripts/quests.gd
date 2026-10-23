@@ -113,6 +113,9 @@ func claim(qid: String, inv: Node) -> bool:
 	if d.is_empty():
 		return false
 	inv.add_gems(int(d.get("reward_gems", 0)))
+	var main := get_parent()
+	if main and main.get("progress") and main.progress.has_method("report_quest"):
+		main.progress.report_quest()
 	var rid: int = int(d.get("reward_item", -1))
 	var rc: int = int(d.get("reward_count", 0))
 	if rid >= 0 and rc > 0:

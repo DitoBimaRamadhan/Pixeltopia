@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3 uid="uid://pixeltopia_main"]
+[gd_scene load_steps=10 format=3 uid="uid://pixeltopia_main"]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/world.gd" id="2_world"]
@@ -7,6 +7,8 @@
 [ext_resource type="Script" path="res://scripts/hud.gd" id="5_hud"]
 [ext_resource type="Script" path="res://scripts/weather.gd" id="6_weather"]
 [ext_resource type="Script" path="res://scripts/quests.gd" id="7_quests"]
+[ext_resource type="Script" path="res://scripts/progress.gd" id="8_progress"]
+[ext_resource type="Script" path="res://scripts/achievements.gd" id="9_achievements"]
 [node name="Main" type="Node2D"]
 script = ExtResource("1_main")
 
@@ -21,6 +23,12 @@ script = ExtResource("4_inv")
 
 [node name="QuestLog" type="Node" parent="."]
 script = ExtResource("7_quests")
+
+[node name="Progress" type="Node" parent="."]
+script = ExtResource("8_progress")
+
+[node name="AchievementLog" type="Node" parent="."]
+script = ExtResource("9_achievements")
 
 [node name="FloatLayer" type="Node2D" parent="."]
 z_index = 20

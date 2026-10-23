@@ -2,6 +2,14 @@
 
 **Original** single-player 2D sandbox + planting prototype (Godot 4).
 
+## v1.6.0 — Atmosphere & progression
+- **Dynamic weather:** Rain & Thunder (plus Clear / Aurora / City) — rain speeds crop growth, thunder flashes + SFX
+- **Day/night cycle:** continuous clock with auto cycle (default on)
+- **Music & SFX:** looping meadow BGM + procedural rain/thunder/level-up/badge tones
+- **Achievements:** original Pixeltopia badges (L key / ★ button)
+- **Leveling:** XP from break, harvest, splice, trade, quests
+- **UI:** Pixelify Sans + green-cream thick-border panels (GT-inspired, original branding)
+
 Inspired only by *general* sandbox-farming mechanics (break/place blocks, plant seeds, harvest). **Not affiliated with Growtopia or any commercial game.** Name, UI, and placeholder art are original. Do not copy another game’s logos, UI layout, or assets.
 
 Working title: **Pixeltopia** (rename anytime in `project.godot` → `config/name`).
@@ -79,8 +87,8 @@ for reference. Pixeltopia itself remains the Godot 4 game. See
 [`imported/IMPORT.md`](imported/IMPORT.md).
 
 
-## Latest (v1.3.0 / v1.4.0)
+## Latest (v1.6.0)
 
 - **Seed splicing:** combine two different seeds (Y / Splice) to discover Emberfruit, Moonpetal, Crystalroot
 - Farmable crops keep rarity-scaled gem & seed drops
-- APK: [Release v1.3.0 / v1.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.3.0 / v1.4.0) · [Direct APK](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.3.0 / v1.4.0/Pixeltopia.apk)
+- APK: [Release v1.6.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.6.0) · [Direct APK](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.6.0/Pixeltopia.apk)

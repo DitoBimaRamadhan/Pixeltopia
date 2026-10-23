@@ -56,6 +56,13 @@ var _world_input: LineEdit = null
 var chat_open: bool = false
 var trade_open: bool = false
 var world_travel_open: bool = false
+var achieve_open: bool = false
+var _xp_lbl: Label = null
+var _clock_lbl: Label = null
+var _badge_toast: Label = null
+var _achieve_root: ColorRect = null
+var _achieve_list: VBoxContainer = null
+var _achieve_status: Label = null
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -69,7 +76,7 @@ func set_dirty(v: bool) -> void:
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D move · Jump · LMB/RMB · Q/G drop · C craft · Y splice · B bag · P store · Esc · Tap bag slots to equip"
+	hint.text = "A/D · Jump · LMB/RMB · Q drop · C craft · Y splice · B bag · P store · L badges · Esc"
 	inv.changed.connect(_on_inv_changed)
 	if inv.has_signal("gems_changed"):
 		inv.gems_changed.connect(_on_gems_changed)
@@ -103,6 +110,10 @@ func _ready() -> void:
 	_add_bag_btn()
 	_style_static_circles()
 	_setup_mp_ui()
+	_setup_xp_clock()
+	_build_achieve_ui()
+	_add_badge_btn()
+	apply_pixeltopia_theme()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 	## Store opens from HUD button / key P (Mira NPC removed).
@@ -212,6 +223,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			toggle_world_travel()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_L and not paused:
+			if achieve_open:
+				close_achieve()
+			else:
+				open_achieve()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_ESCAPE:
 			if craft_open:
 				close_craft()
@@ -233,6 +251,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_trade()
 			elif world_travel_open:
 				close_world_travel()
+			elif achieve_open:
+				close_achieve()
 			else:
 				set_paused(not paused)
 			get_viewport().set_input_as_handled()
@@ -281,7 +301,7 @@ func _set_craft_visible(v: bool) -> void:
 	craft_panel.visible = v
 
 func _emit_block_input() -> void:
-	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open or splice_open)
+	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open or splice_open or achieve_open)
 
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
@@ -411,7 +431,7 @@ func _setup_weather_ui() -> void:
 			_refresh_weather_status()
 			Sfx.play_ui())
 		period_row.add_child(b)
-	var moods := ["Clear", "Aurora", "City"]
+	var moods := ["Clear", "Aurora", "City", "Rain", "Storm"]
 	for i in range(moods.size()):
 		var b2 := UiCircle.make_button(moods[i], UiCircle.ACTION_SIZE, Color(0.35, 0.55, 0.85))
 		var mi := i
@@ -447,7 +467,7 @@ func _toggle_weather_auto() -> void:
 func _refresh_weather_status() -> void:
 	if not has_node("Root/WeatherUI"):
 		return
-	$Root/WeatherUI/Panel/VBox/Status.text = weather.label() + " — sun is the only light source"
+	$Root/WeatherUI/Panel/VBox/Status.text = weather.label() + (" · crops grow faster" if weather.is_raining() else " — sun light only")
 	$Root/WeatherUI/Panel/VBox/BtnAuto.text = "Auto On" if weather.auto_cycle else "Auto Off"
 
 func _setup_backpack_ui() -> void:
@@ -716,6 +736,8 @@ func _close_overlays_except(keep: String) -> void:
 		close_quest()
 	if keep != "splice" and splice_open:
 		close_splice()
+	if keep != "achieve" and achieve_open:
+		close_achieve()
 
 func _make_modal(name: String, title_text: String) -> Dictionary:
 	var root := ColorRect.new()
@@ -1433,3 +1455,198 @@ func on_trade_event(data: Dictionary) -> void:
 		_trade_status.text = "Trade selesai!"
 	elif ev == "failed":
 		_trade_status.text = str(data.get("error", "Trade gagal"))
+
+
+## --- v1.6: theme, XP, clock, achievements ---
+
+func apply_pixeltopia_theme() -> void:
+	var UiT = preload("res://scripts/ui_theme.gd")
+	var root := $Root
+	UiT.apply_label(title, false, 18)
+	title.add_theme_color_override("font_color", UiT.CREAM)
+	UiT.apply_label(hint, false, 11)
+	UiT.apply_label(selected_lbl, false, 12)
+	if _gems_lbl:
+		UiT.apply_label(_gems_lbl, false, 14)
+		_gems_lbl.add_theme_color_override("font_color", UiT.GREEN_SOFT)
+	if _xp_lbl:
+		UiT.apply_label(_xp_lbl, false, 13)
+		_xp_lbl.add_theme_color_override("font_color", UiT.GOLD)
+	if _clock_lbl:
+		UiT.apply_label(_clock_lbl, false, 13)
+	for path in [
+		"Root/Pause/Panel",
+		"Root/Craft/Panel",
+		"Root/WeatherUI/Panel",
+		"Root/Backpack/Panel",
+	]:
+		if has_node(path):
+			UiT.apply_panel_container(get_node(path), true)
+	# Soft green clear color for menus feel
+	if has_node("Root/Pause"):
+		var pr: ColorRect = $Root/Pause
+		pr.color = Color(0.08, 0.16, 0.1, 0.88)
+
+func _setup_xp_clock() -> void:
+	_xp_lbl = Label.new()
+	_xp_lbl.name = "XpLabel"
+	_xp_lbl.position = Vector2(12, 36)
+	_xp_lbl.size = Vector2(280, 24)
+	$Root.add_child(_xp_lbl)
+	_clock_lbl = Label.new()
+	_clock_lbl.name = "ClockLabel"
+	_clock_lbl.position = Vector2(400, 8)
+	_clock_lbl.size = Vector2(200, 24)
+	$Root.add_child(_clock_lbl)
+	_badge_toast = Label.new()
+	_badge_toast.name = "BadgeToast"
+	_badge_toast.visible = false
+	_badge_toast.position = Vector2(280, 60)
+	_badge_toast.size = Vector2(400, 36)
+	_badge_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	$Root.add_child(_badge_toast)
+	set_xp_label(1, 0, 48)
+	refresh_clock()
+	if weather and weather.has_signal("changed"):
+		weather.changed.connect(refresh_clock)
+
+func set_xp_label(level: int, xp: int, need: int) -> void:
+	if _xp_lbl:
+		_xp_lbl.text = "Lv %d  XP %d/%d" % [level, xp, need]
+
+func refresh_clock() -> void:
+	if _clock_lbl == null or weather == null:
+		return
+	if weather.has_method("label"):
+		_clock_lbl.text = weather.label()
+
+func toast_badge(title: String) -> void:
+	if _badge_toast == null:
+		return
+	var UiT = preload("res://scripts/ui_theme.gd")
+	UiT.apply_label(_badge_toast, false, 16)
+	_badge_toast.add_theme_color_override("font_color", UiT.GOLD)
+	_badge_toast.text = "★ Badge unlocked: %s" % title
+	_badge_toast.visible = true
+	var tw := create_tween()
+	tw.tween_interval(2.8)
+	tw.tween_callback(func() -> void:
+		if _badge_toast:
+			_badge_toast.visible = false)
+
+func _add_badge_btn() -> void:
+	if not has_node("Root/TouchPad"):
+		return
+	var b := UiCircle.make_button("★", UiCircle.TOUCH_SIZE, Color(0.85, 0.65, 0.2))
+	b.name = "BtnBadges"
+	b.anchor_left = 1.0
+	b.anchor_top = 0.0
+	b.anchor_right = 1.0
+	b.anchor_bottom = 0.0
+	b.offset_left = -88.0
+	b.offset_top = 48.0
+	b.offset_right = -16.0
+	b.offset_bottom = 120.0
+	b.pressed.connect(func() -> void:
+		if achieve_open:
+			close_achieve()
+		else:
+			open_achieve()
+		Sfx.play_ui())
+	$Root/TouchPad.add_child(b)
+
+func _build_achieve_ui() -> void:
+	_achieve_root = ColorRect.new()
+	_achieve_root.name = "AchieveUI"
+	_achieve_root.color = Color(0.08, 0.16, 0.1, 0.92)
+	_achieve_root.visible = false
+	_achieve_root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	$Root.add_child(_achieve_root)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(180, 40)
+	panel.size = Vector2(600, 440)
+	var UiT = preload("res://scripts/ui_theme.gd")
+	UiT.apply_panel_container(panel, true)
+	_achieve_root.add_child(panel)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 8)
+	panel.add_child(v)
+	var ttl := Label.new()
+	ttl.text = "Pixeltopia Badges"
+	UiT.apply_label(ttl, true, 20)
+	v.add_child(ttl)
+	_achieve_status = Label.new()
+	_achieve_status.text = "Unlock badges by playing."
+	UiT.apply_label(_achieve_status, true, 12)
+	v.add_child(_achieve_status)
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	scroll.custom_minimum_size = Vector2(560, 320)
+	v.add_child(scroll)
+	_achieve_list = VBoxContainer.new()
+	_achieve_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_achieve_list.add_theme_constant_override("separation", 6)
+	scroll.add_child(_achieve_list)
+	var close_b := UiCircle.make_button("Close", UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
+	close_b.pressed.connect(close_achieve)
+	v.add_child(close_b)
+
+func open_achieve() -> void:
+	if paused:
+		return
+	_close_overlays_except("achieve")
+	achieve_open = true
+	if _achieve_root:
+		_achieve_root.visible = true
+	_rebuild_achieve()
+	Sfx.play_ui()
+	_emit_block_input()
+
+func close_achieve() -> void:
+	achieve_open = false
+	if _achieve_root:
+		_achieve_root.visible = false
+	_emit_block_input()
+
+func _rebuild_achieve() -> void:
+	if _achieve_list == null or _main == null:
+		return
+	for c in _achieve_list.get_children():
+		c.queue_free()
+	var ach: Node = _main.get_node_or_null("AchievementLog")
+	if ach == null:
+		return
+	var UiT = preload("res://scripts/ui_theme.gd")
+	var unlocked := 0
+	var total := 0
+	for d in ach.defs():
+		total += 1
+		var id: String = str(d["id"])
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		var swatch := ColorRect.new()
+		swatch.custom_minimum_size = Vector2(28, 28)
+		swatch.color = d.get("color", Color(0.5, 0.5, 0.5))
+		row.add_child(swatch)
+		var info := VBoxContainer.new()
+		info.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var name_l := Label.new()
+		var done: bool = ach.is_unlocked(id)
+		if done:
+			unlocked += 1
+		name_l.text = ("%s ★" if done else "%s") % str(d["title"])
+		UiT.apply_label(name_l, true, 14)
+		if done:
+			name_l.add_theme_color_override("font_color", UiT.GREEN_DEEP)
+		var bl := Label.new()
+		var prog: int = int(ach.progress_of(id))
+		var goal := int(d.get("goal", 1))
+		bl.text = "%s  (%d/%d)" % [str(d.get("blurb", "")), prog, goal]
+		UiT.apply_label(bl, true, 11)
+		info.add_child(name_l)
+		info.add_child(bl)
+		row.add_child(info)
+		_achieve_list.add_child(row)
+	if _achieve_status:
+		_achieve_status.text = "Unlocked %d / %d badges" % [unlocked, total]
+
