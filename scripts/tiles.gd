@@ -18,6 +18,7 @@ enum Id {
 	SEED_AZURE = 10, ## Azureoot seed (growing)
 	CROP_AZURE = 11, ## Azureoot mature
 	WEATHER_MACHINE = 12, ## placeable sun-weather console (non-solid)
+	FERTILIZER = 13, ## inventory item: shortens grow time on seeds
 }
 
 const NAMES := {
@@ -34,6 +35,7 @@ const NAMES := {
 	Id.SEED_AZURE: "Azureoot Seed",
 	Id.CROP_AZURE: "Azureoot",
 	Id.WEATHER_MACHINE: "Weather Machine",
+	Id.FERTILIZER: "Fertilizer",
 }
 
 static func is_solid(id: int) -> bool:
@@ -49,10 +51,14 @@ static func is_placeable(id: int) -> bool:
 		or id == Id.SEED_AZURE or id == Id.WEATHER_MACHINE
 
 static func is_seed(id: int) -> bool:
-	return id == Id.SEED or id == Id.SEED_AZURE or id == Id.WEATHER_MACHINE
+	return id == Id.SEED or id == Id.SEED_AZURE
 
 static func is_crop(id: int) -> bool:
 	return id == Id.CROP or id == Id.CROP_AZURE
+
+static func is_usable_item(id: int) -> bool:
+	## Inventory-only tools/consumables (not world tiles).
+	return id == Id.FERTILIZER
 
 static func seed_for_crop(crop_id: int) -> int:
 	if crop_id == Id.CROP_AZURE:
@@ -97,5 +103,7 @@ static func color(id: int) -> Color:
 			return Color(0.35, 0.55, 1.0)
 		Id.WEATHER_MACHINE:
 			return Color(0.55, 0.85, 1.0)
+		Id.FERTILIZER:
+			return Color(0.55, 0.75, 0.30)
 		_:
 			return Color(0, 0, 0, 0)

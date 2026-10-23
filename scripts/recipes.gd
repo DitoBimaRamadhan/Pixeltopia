@@ -1,5 +1,5 @@
 extends RefCounted
-## Craft recipes for Pixeltopia Phase 2 (data only — original content).
+## Craft recipes for Pixeltopia Phase 2/3 (data only — original content).
 class_name Recipes
 
 ## Each recipe: id, name, result tile id, result_count, ingredients [{id, count}]
@@ -30,6 +30,17 @@ static func all() -> Array:
 			"ingredients": [
 				{"id": Tiles.Id.PLANK, "count": 4},
 				{"id": Tiles.Id.TORCH, "count": 2},
+			],
+		},
+		{
+			"id": "fertilizer",
+			"name": "Fertilizer",
+			"blurb": "1 Groveberry + 1 Dirt → 2 Fertilizer (halves grow time)",
+			"result": Tiles.Id.FERTILIZER,
+			"result_count": 2,
+			"ingredients": [
+				{"id": Tiles.Id.CROP, "count": 1},
+				{"id": Tiles.Id.DIRT, "count": 1},
 			],
 		},
 	]

@@ -1,6 +1,7 @@
 extends Node2D
-## Pixeltopia player: move, jump, punch/break, place, plant/harvest.
+## Pixeltopia player: move, jump, punch/break, place, plant/harvest, drop/pickup.
 
+const Items = preload("res://scripts/items.gd")
 const SPEED := 160.0
 const JUMP_V := -320.0
 const GRAVITY := 900.0
@@ -11,6 +12,7 @@ const BODY := Vector2(20, 28)
 @onready var inv: Node = get_parent().get_node("Inventory")
 @onready var body_rect: ColorRect = $Body
 @onready var float_layer: Node2D = get_parent().get_node("FloatLayer")
+@onready var camera: Camera2D = $Camera2D
 
 var velocity: Vector2 = Vector2.ZERO
 var facing: int = 1
@@ -20,6 +22,14 @@ var look = null  ## AvatarLook
 var _step_cd: float = 0.0
 var _touch_dir: float = 0.0
 var _touch_jump: bool = false
+var _shake_t: float = 0.0
+var _pickup_cd: float = 0.0
+
+signal weather_machine_used
+signal shop_used
+signal quest_used
+signal crops_harvested(count: int)
+signal world_edited
 
 func _ready() -> void:
 	var AvatarLookScript = load("res://scripts/avatar.gd")
@@ -27,15 +37,21 @@ func _ready() -> void:
 	if body_rect:
 		body_rect.visible = false
 	_spawn_default()
+	if world.has_signal("tile_broken"):
+		world.tile_broken.connect(_on_tile_broken)
 	queue_redraw()
 
 func _spawn_default() -> void:
-	var tx := int(world.W / 2)
-	var spawn_y := 2
-	for y in range(world.H):
-		if Tiles.is_solid(world.get_tile(tx, y)):
-			spawn_y = maxi(y - 2, 1)
-			break
+	var tx: int = int(world.W / 2)
+	var spawn_y: int = 2
+	if "spawn_tile" in world:
+		tx = int(world.spawn_tile.x)
+		spawn_y = int(world.spawn_tile.y)
+	else:
+		for y in range(world.H):
+			if Tiles.is_solid(world.get_tile(tx, y)):
+				spawn_y = maxi(y - 2, 1)
+				break
 	global_position = Vector2(tx * Tiles.SIZE + Tiles.SIZE * 0.5, spawn_y * Tiles.SIZE)
 
 func apply_save_pos(pos: Vector2) -> void:
@@ -44,6 +60,7 @@ func apply_save_pos(pos: Vector2) -> void:
 
 func _physics_process(delta: float) -> void:
 	if paused:
+		_update_shake(delta)
 		return
 	var dir := _touch_dir
 	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
@@ -70,10 +87,17 @@ func _physics_process(delta: float) -> void:
 	_resolve_tiles(delta)
 	_hotbar_keys()
 	_footsteps(delta, dir)
+	_try_auto_pickup(delta)
+	_update_shake(delta)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if paused:
 		return
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_Q or event.keycode == KEY_G:
+			_drop_selected()
+			get_viewport().set_input_as_handled()
+			return
 	if event is InputEventMouseButton and event.pressed:
 		var mb := event as InputEventMouseButton
 		var mouse := get_global_mouse_position()
@@ -102,30 +126,98 @@ func _spawn_float(text: String, color: Color = Color(1.0, 0.92, 0.45)) -> void:
 	ft.global_position = global_position + Vector2(0, -24)
 	ft.call("setup", text, color)
 
-signal weather_machine_used
+func _on_tile_broken(world_pos: Vector2) -> void:
+	_shake(0.18, 4.0)
+	world_edited.emit()
+
+func _shake(duration: float, magnitude: float) -> void:
+	_shake_t = maxf(_shake_t, duration)
+	if camera:
+		camera.offset = Vector2(randf_range(-magnitude, magnitude), randf_range(-magnitude, magnitude))
+
+func _update_shake(delta: float) -> void:
+	if _shake_t <= 0.0:
+		if camera and camera.offset != Vector2.ZERO:
+			camera.offset = Vector2.ZERO
+		return
+	_shake_t -= delta
+	if camera:
+		var m := 3.0 * (_shake_t / 0.18)
+		camera.offset = Vector2(randf_range(-m, m), randf_range(-m, m))
+		if _shake_t <= 0.0:
+			camera.offset = Vector2.ZERO
+
+func _try_auto_pickup(delta: float) -> void:
+	_pickup_cd = maxf(_pickup_cd - delta, 0.0)
+	if _pickup_cd > 0.0:
+		return
+	var n: int = world.try_pickup_at(global_position, inv)
+	if n > 0:
+		_pickup_cd = 0.12
+		_spawn_float("Picked up ×%d" % n, Color(0.7, 1.0, 0.75))
+		Sfx.play_harvest()
+
+func _drop_selected() -> void:
+	var result: Dictionary = inv.drop_selected(1)
+	if result.is_empty():
+		_spawn_float("Can't drop", Color(1.0, 0.5, 0.5))
+		Sfx.play_ui()
+		return
+	var ahead := global_position + Vector2(facing * Tiles.SIZE * 0.9, 0)
+	var t: Vector2i = world.world_to_tile(ahead)
+	world.spawn_drop(t.x, t.y, int(result["id"]), int(result["n"]))
+	var id: int = int(result["id"])
+	_spawn_float("Dropped %s" % Items.display_name(id), Items.rarity_color(id))
+	Sfx.play_place()
+	world_edited.emit()
+
+func _npc_at(t: Vector2i) -> String:
+	if not world.has_method("npc_at"):
+		return ""
+	return str(world.npc_at(t.x, t.y))
 
 func _punch_or_use(t: Vector2i) -> void:
+	var npc_role := _npc_at(t)
+	if npc_role == "shop":
+		shop_used.emit()
+		Sfx.play_ui()
+		return
+	if npc_role == "quest":
+		quest_used.emit()
+		Sfx.play_ui()
+		return
 	var id: int = world.get_tile(t.x, t.y)
 	if id == Tiles.Id.WEATHER_MACHINE:
 		weather_machine_used.emit()
 		Sfx.play_ui()
 		return
+	## Fertilizer on sprout
+	if Tiles.is_seed(id) and not inv.is_fist() and inv.get_selected_id() == Tiles.Id.FERTILIZER:
+		if world.try_fertilize(t.x, t.y):
+			inv.consume_selected(1)
+			_spawn_float("Fertilized!", Color(0.6, 0.95, 0.4))
+			Sfx.play_craft()
+			world_edited.emit()
+		else:
+			_spawn_float("Already boosted", Color(1.0, 0.8, 0.4))
+			Sfx.play_ui()
+		return
 	if Tiles.is_crop(id):
-		var drop: int = world.try_harvest(t.x, t.y)
+		var drop: int = world.try_harvest(t.x, t.y, true)
 		if drop >= 0:
-			inv.add_item(drop, 1)
-			inv.add_item(Tiles.seed_for_crop(drop), 1)
-			var nm: String = Tiles.NAMES.get(drop, "Crop")
-			_spawn_float("+1 %s" % nm, Tiles.color(drop).lightened(0.35))
+			var nm: String = Items.display_name(drop)
+			_spawn_float("+%s (ground)" % nm, Items.rarity_color(drop))
 			Sfx.play_harvest()
+			crops_harvested.emit(1)
+			world_edited.emit()
 		return
 	if id != Tiles.Id.AIR:
-		var drop2: int = world.break_tile(t.x, t.y)
+		var drop2: int = world.break_tile(t.x, t.y, true)
 		if drop2 >= 0:
-			inv.add_item(drop2, 1)
-			var nm: String = Tiles.NAMES.get(drop2, "Item")
-			_spawn_float("+1 %s" % nm, Tiles.color(drop2).lightened(0.35))
+			var nm2: String = Items.display_name(drop2)
+			_spawn_float("+%s (ground)" % nm2, Items.rarity_color(drop2))
 			Sfx.play_break()
+			world_edited.emit()
 		return
 	if not inv.is_fist():
 		_place(t)
@@ -136,9 +228,17 @@ func _place(t: Vector2i) -> void:
 	var id: int = inv.get_selected_id()
 	if inv.selected <= 0 or inv.counts[inv.selected] <= 0:
 		return
+	if Tiles.is_usable_item(id):
+		## Usable items are applied via punch, not placed
+		return
 	if world.place_tile(t.x, t.y, id):
 		inv.consume_selected(1)
 		Sfx.play_place()
+		if Tiles.is_seed(id):
+			var main := get_parent()
+			if main.has_method("notify_planted"):
+				main.notify_planted()
+		world_edited.emit()
 
 func _resolve_tiles(delta: float) -> void:
 	var pos := global_position
@@ -188,7 +288,6 @@ func _separate(pos: Vector2, horizontal: bool) -> Vector2:
 					pos.y = tile_r.end.y + half.y
 	return pos
 
-
 func set_touch_dir(d: float) -> void:
 	_touch_dir = clampf(d, -1.0, 1.0)
 
@@ -205,12 +304,14 @@ func touch_place_at(world_pos: Vector2) -> void:
 	if _in_reach(t):
 		_place(t)
 
+func touch_drop() -> void:
+	_drop_selected()
+
 func _footsteps(delta: float, dir: float) -> void:
 	_step_cd = maxf(_step_cd - delta, 0.0)
 	if on_floor and absf(dir) > 0.1 and _step_cd <= 0.0:
 		Sfx.play_footstep()
 		_step_cd = 0.28
-
 
 func _draw() -> void:
 	if look == null:
