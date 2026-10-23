@@ -317,6 +317,9 @@ func _tick_growth() -> void:
 		if base < 0.0:
 			continue
 		var mult: float = float(grow_boost.get(key, 1.0))
+		var wnode := get_parent().get_node_or_null("Weather") if get_parent() else null
+		if wnode and wnode.has_method("growth_multiplier"):
+			mult *= float(wnode.growth_multiplier())
 		var need := base * mult
 		if now - t0 >= need:
 			grown.append(key)
