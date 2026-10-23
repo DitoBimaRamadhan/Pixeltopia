@@ -1,0 +1,19 @@
+; Engine configuration file — Pixeltopia Phase 1
+config_version=5
+
+[application]
+config/name="Pixeltopia"
+config/description="Original 2D sandbox farming prototype. Not affiliated with Growtopia or any other commercial game."
+run/main_scene="res://scenes/main.tscn"
+config/features=PackedStringArray("4.3", "Forward Plus")
+config/icon="res://icon.svg"
+
+[display]
+window/size/viewport_width=960
+window/size/viewport_height=540
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[rendering]
+textures/canvas_textures/default_texture_filter=0
+environment/defaults/default_clear_color=Color(0.45, 0.72, 0.95, 1)
