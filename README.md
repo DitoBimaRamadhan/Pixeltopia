@@ -79,9 +79,8 @@ for reference. Pixeltopia itself remains the Godot 4 game. See
 [`imported/IMPORT.md`](imported/IMPORT.md).
 
 
-## Latest (v0.4.0)
+## Latest (v1.1.0)
 
-- Item catalog with rarity; drop (Q/G) and walk-over pickup
-- **Pixeltopia Store** — buy items with gems (HUD Store / key P)
-- **Quill the Guide** — accept / complete / claim quests
-- APK: [Release v0.4.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.4.0)
+- **Seed splicing:** combine two different seeds (Y / Splice) to discover Emberfruit, Moonpetal, Crystalroot
+- Farmable crops keep rarity-scaled gem & seed drops
+- APK: [Release v1.1.0](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.1.0) · [Direct APK](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.1.0/Pixeltopia.apk)

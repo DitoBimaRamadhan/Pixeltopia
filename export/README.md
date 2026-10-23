@@ -1,7 +1,9 @@
 # Pixeltopia Android APK
 
-**Release:** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v0.9.0
+**Latest:** [v1.1.0 Release](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/tag/v1.1.0)
 
-**Direct APK download:** https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v0.9.0/Pixeltopia.apk
+**Direct download:** [Pixeltopia.apk](https://github.com/DitoBimaRamadhan/Pixeltopia/releases/download/v1.1.0/Pixeltopia.apk)
 
-v0.9.0 — true circular UI buttons (≥48dp). Original Pixeltopia branding.
+v1.1.0 — seed splicing discovery (combine two seeds → new farmable seed). Original Pixeltopia branding (not affiliated with Growtopia).
+
+Debug-signed APK (`com.pixeltopia.game`). Enable “Install unknown apps” on your device if needed.
