@@ -16,12 +16,18 @@ var velocity: Vector2 = Vector2.ZERO
 var facing: int = 1
 var on_floor: bool = false
 var paused: bool = false
+var look = null  ## AvatarLook
 var _step_cd: float = 0.0
 var _touch_dir: float = 0.0
 var _touch_jump: bool = false
 
 func _ready() -> void:
+	var AvatarLookScript = load("res://scripts/avatar.gd")
+	look = AvatarLookScript.new()
+	if body_rect:
+		body_rect.visible = false
 	_spawn_default()
+	queue_redraw()
 
 func _spawn_default() -> void:
 	var tx := int(world.W / 2)
@@ -47,9 +53,10 @@ func _physics_process(delta: float) -> void:
 	dir = clampf(dir, -1.0, 1.0)
 	velocity.x = dir * SPEED
 	if dir != 0.0:
-		facing = 1 if dir > 0.0 else -1
-		if body_rect:
-			body_rect.scale.x = float(facing)
+		var nf := 1 if dir > 0.0 else -1
+		if nf != facing:
+			facing = nf
+			queue_redraw()
 
 	var want_jump := _touch_jump or Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)
 	_touch_jump = false
@@ -203,3 +210,36 @@ func _footsteps(delta: float, dir: float) -> void:
 	if on_floor and absf(dir) > 0.1 and _step_cd <= 0.0:
 		Sfx.play_footstep()
 		_step_cd = 0.28
+
+
+func _draw() -> void:
+	if look == null:
+		return
+	var AvatarLookScript = load("res://scripts/avatar.gd")
+	AvatarLookScript.draw_look(self, look, facing)
+
+func set_look_from_dict(data: Dictionary) -> void:
+	if look == null:
+		var AvatarLookScript = load("res://scripts/avatar.gd")
+		look = AvatarLookScript.new()
+	look.from_save(data)
+	queue_redraw()
+
+func look_to_save() -> Dictionary:
+	if look == null:
+		return {}
+	return look.to_save()
+
+func cycle_look(part: String, delta: int = 1) -> void:
+	if look == null:
+		return
+	match part:
+		"skin":
+			look.skin_i = (look.skin_i + delta) % look.SKIN.size()
+		"hair":
+			look.hair_i = (look.hair_i + delta) % look.HAIR.size()
+		"clothes":
+			look.clothes_i = (look.clothes_i + delta) % look.CLOTHES.size()
+		"accessory":
+			look.accessory_i = (look.accessory_i + delta) % look.ACCESSORY.size()
+	queue_redraw()

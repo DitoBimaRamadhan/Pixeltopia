@@ -20,10 +20,14 @@ func _on_pause(paused: bool) -> void:
 
 func save_game() -> void:
 	var data := {
-		"version": 2,
+		"version": 3,
 		"world": world.to_save(),
 		"inventory": inv.to_save(),
-		"player": {"x": player.global_position.x, "y": player.global_position.y},
+		"player": {
+			"x": player.global_position.x,
+			"y": player.global_position.y,
+			"avatar": player.look_to_save(),
+		},
 		"weather": weather.to_save(),
 	}
 	var f := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
@@ -55,6 +59,8 @@ func load_game() -> void:
 	if data.has("player"):
 		var p: Dictionary = data["player"]
 		player.apply_save_pos(Vector2(float(p.get("x", 0)), float(p.get("y", 0))))
+		if p.has("avatar"):
+			player.set_look_from_dict(p["avatar"])
 	if data.has("weather"):
 		weather.from_save(data["weather"])
 	hud.show_status("Loaded save.")

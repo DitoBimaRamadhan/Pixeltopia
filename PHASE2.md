@@ -79,10 +79,10 @@ Lighting and atmosphere for Phase 2. **Sun only** as the primary light source �
 
 Pixel-art 2D player avatar in a **Growtopia-like feel** (small body, simple face) — **original art only**, never Growtopia assets, logos, or copied sprites.
 
-- [ ] Replace the Phase 1 solid-color player rect with a small **customizable** character: skin color, hair, clothes, accessories
-- [ ] Walk / jump / face direction in the Pixeltopia world using existing Phase 1 controls
-- [ ] Simple character customize UI (from pause or a wardrobe item) that saves with the world save JSON
-- [ ] Hotbar / inventory icons can preview the equipped look without breaking Phase 1 item rules
+- [x] Replace the Phase 1 solid-color player rect with a small **customizable** character: skin color, hair, clothes, accessories
+- [x] Walk / jump / face direction in the Pixeltopia world using existing Phase 1 controls
+- [x] Simple character customize UI (from pause) that saves with the world save JSON
+- [x] Hotbar / inventory icons can preview the equipped look without breaking Phase 1 item rules
 
 
 ### 2.10 UI / UX (sandbox-friendly)
@@ -186,7 +186,7 @@ Do **not** cut a release APK until most of these are true:
 - [x] Craft UI + recipes (done)
 - [x] Extra tile + second crop (Sand, Azureoot — done)
 - [x] Weather machine + sun-only day periods (Morning/Noon/Afternoon/Night) + moods (Aurora, City/Overcast)
-- [ ] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
+- [x] Customizable pixel avatar (skin/hair/clothes/accessories) walking in-world
 - [ ] Growtopia-*like* but **original** UI/UX: bottom hotbar polish, backpack, simple action buttons, pause menu
 - [x] Audio juice (place/break/harvest/craft/footsteps/UI) + mute
 - [ ] Save slots / settings polish (or at least stable single-slot save with version field)
@@ -278,7 +278,7 @@ Public research only (no account login). Official site `growtopia.com` returned 
 | Farming / multiple crops | Yes §2.1 | Partial (2 crops) |
 | Craft / combine | Yes §2.2 | Done (craft; not full splice graph) |
 | Weather machine | Yes §2.8 | Done |
-| Avatar cosmetics | Yes §2.9 | Planned |
+| Avatar cosmetics | Yes §2.9 | Done |
 | Bottom hotbar / backpack UI | Yes §2.10 | Partial (hotbar; backpack open) |
 | Audio / touch / save slots | Yes §2.4–2.6 | Planned |
 | Online worlds, locks, gems, trade, chat | Explicitly later / §2.11 | Not Phase 2 |
@@ -319,7 +319,7 @@ Phase 2 is “done enough” when a player can: explore a slightly richer world,
 3. [x] Place/break/harvest SFX + mute toggle
 4. [x] Touch controls prototype
 5. [x] Weather machine + sun-only Morning/Noon/Afternoon/Night + Aurora & City/Overcast presets
-6. Character customize (skin/hair/clothes/accessories) + walk in world
+6. [x] Character customize (skin/hair/clothes/accessories) + walk in world
 7. Bottom hotbar polish + backpack inventory + simple action buttons / pause UI
 8. Final Android APK export (§2.13) after feature gate
 

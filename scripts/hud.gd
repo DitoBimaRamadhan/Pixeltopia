@@ -20,6 +20,7 @@ var paused: bool = false
 var craft_open: bool = false
 var weather_open: bool = false
 var backpack_open: bool = false
+var avatar_open: bool = false
 
 signal pause_changed(paused: bool)
 signal save_requested
@@ -43,6 +44,7 @@ func _ready() -> void:
 	_rebuild_craft_list()
 	_setup_touch()
 	_setup_weather_ui()
+	_setup_avatar_ui()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 
@@ -128,7 +130,7 @@ func _set_craft_visible(v: bool) -> void:
 	craft_panel.visible = v
 
 func _emit_block_input() -> void:
-	pause_changed.emit(paused or craft_open or weather_open or backpack_open)
+	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open)
 
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
@@ -308,4 +310,37 @@ func close_backpack() -> void:
 	backpack_open = false
 	if has_node("Root/Backpack"):
 		$Root/Backpack.visible = false
+	_emit_block_input()
+
+
+func _setup_avatar_ui() -> void:
+	if has_node("Root/Pause/Panel/BtnAvatar"):
+		$Root/Pause/Panel/BtnAvatar.pressed.connect(_open_avatar_from_pause)
+	if not has_node("Root/AvatarUI"):
+		return
+	$Root/AvatarUI/Panel/VBox/BtnClose.pressed.connect(close_avatar)
+	$Root/AvatarUI/Panel/VBox/BtnSkin.pressed.connect(func() -> void:
+		player.cycle_look("skin"); Sfx.play_ui())
+	$Root/AvatarUI/Panel/VBox/BtnHair.pressed.connect(func() -> void:
+		player.cycle_look("hair"); Sfx.play_ui())
+	$Root/AvatarUI/Panel/VBox/BtnClothes.pressed.connect(func() -> void:
+		player.cycle_look("clothes"); Sfx.play_ui())
+	$Root/AvatarUI/Panel/VBox/BtnAccessory.pressed.connect(func() -> void:
+		player.cycle_look("accessory"); Sfx.play_ui())
+
+func _open_avatar_from_pause() -> void:
+	set_paused(false)
+	open_avatar()
+
+func open_avatar() -> void:
+	avatar_open = true
+	if has_node("Root/AvatarUI"):
+		$Root/AvatarUI.visible = true
+	Sfx.play_ui()
+	_emit_block_input()
+
+func close_avatar() -> void:
+	avatar_open = false
+	if has_node("Root/AvatarUI"):
+		$Root/AvatarUI.visible = false
 	_emit_block_input()
