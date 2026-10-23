@@ -96,11 +96,11 @@ func _on_join() -> void:
 	var s: Dictionary = _servers[i]
 	Session.set_selected_server(s)
 	status_lbl.text = "Masuk ke %s…" % str(s.get("name", "dunia"))
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
+	get_tree().change_scene_to_file("res://scenes/auth/world_select.tscn")
 
 func _on_offline() -> void:
 	Session.enter_offline(Session.username if not Session.username.is_empty() else "Tamu")
-	get_tree().change_scene_to_file("res://scenes/main.tscn")
+	get_tree().change_scene_to_file("res://scenes/auth/world_select.tscn")
 
 func _on_logout() -> void:
 	Session.clear_session()
