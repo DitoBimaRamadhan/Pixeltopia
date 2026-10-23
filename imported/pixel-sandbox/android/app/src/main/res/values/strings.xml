@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Pixel Sandbox</string>
+    <string name="title_activity_main">Pixel Sandbox</string>
+    <string name="package_name">com.pixelsandbox.game</string>
+    <string name="custom_url_scheme">com.pixelsandbox.game</string>
+</resources>

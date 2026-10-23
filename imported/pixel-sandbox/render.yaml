@@ -1,0 +1,15 @@
+# Blueprint Render (gratis). Render > New > Blueprint > pilih repo ini.
+# Isi DATABASE_URL dengan connection string Postgres gratis (Neon / Supabase) agar data permanen.
+services:
+  - type: web
+    name: pixel-sandbox
+    runtime: node
+    plan: free
+    buildCommand: npm install --omit=dev
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        sync: false
+      - key: NODE_VERSION
+        value: "20"

@@ -1,0 +1,12 @@
+{
+  "appId": "com.pixelsandbox.game",
+  "appName": "Pixel Sandbox",
+  "webDir": "public",
+  "server": {
+    "androidScheme": "https",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

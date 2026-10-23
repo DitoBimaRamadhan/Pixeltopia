@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1230">
+<title>Pixel Sandbox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="login">
+  <div class="box">
+    <div class="logo"><canvas id="logoCv" width="40" height="40"></canvas><h1>Pixel Sandbox</h1></div>
+    <p>Game sandbox 2D multiplayer</p>
+    <input id="name" placeholder="Username (3-16)" maxlength="16" autocomplete="username" autocapitalize="off">
+    <input id="pass" type="password" placeholder="Password (min. 6)" maxlength="72" autocomplete="current-password">
+    <div class="row">
+      <button id="go" class="btn g">Masuk</button>
+      <button id="reg" class="btn">Daftar</button>
+    </div>
+    <div id="loginErr"></div>
+    <small class="hint">Belum punya akun? Isi username &amp; password baru lalu tekan <b>Daftar</b>.</small>
+    <button id="logout" class="link">Keluar akun (hapus sesi tersimpan)</button>
+    <div class="help">
+      <b>PC:</b> A/D atau ←/→ jalan, W/Space/↑ lompat · Klik kiri = pakai item (Tinju = pukul, blok = taruh, seed = tanam) ·
+      Klik kanan = selalu pukul · 1-9 / scroll = pilih item · I = inventori · Enter = chat<br>
+      <b>HP:</b> panah kiri/kanan jalan · panah atas lompat · tombol tinju = pukul/taruh di depan · tap layar = pakai item di situ<br>
+      <b>Perintah:</b> /world NAMA · /access add|remove|list NAMA · /trade NAMA · /msg NAMA PESAN · /r PESAN · /teman add NAMA · /sign TEKS · /help
+    </div>
+  </div>
+</div>
+<canvas id="c"></canvas>
+
+<div id="ui">
+  <!-- Strip atas: nama world + chat/broadcast terbaru -->
+  <div id="ticker" title="Riwayat chat"><span id="tkWorld"></span><span id="tkText"></span></div>
+
+  <!-- Kiri atas: avatar + gem -->
+  <div id="tl">
+    <button id="avatarBtn" class="ib" title="Pakaian"><canvas id="avatarCv" width="56" height="56"></canvas></button>
+    <div id="gemPill"><span data-ico="gem" data-ico-size="20"></span><b id="gems">0</b><button id="gemPlus" class="plusbtn" title="Toko" data-ico="plus" data-ico-size="16"></button></div>
+  </div>
+
+  <!-- Kolom ikon kiri -->
+  <div id="lcol">
+    <button class="ib" data-panel="profile" title="Profil" data-ico="person"><span class="badge" id="pBadge">1</span></button>
+    <button class="ib" data-panel="world" title="Pengaturan world" data-ico="wrench"></button>
+    <button class="ib" data-panel="friends" title="Teman" data-ico="star"><span class="dot" id="friendDot"></span></button>
+    <button class="ib" data-panel="worlds" title="Worlds" data-ico="globe"></button>
+    <button class="ib" data-panel="cos" title="Pakaian" data-ico="shirt"></button>
+    <button class="ib" id="menuBtn2" title="Menu" data-ico="bars"></button>
+  </div>
+
+  <!-- Kolom kanan -->
+  <div id="rcol">
+    <button id="menuBtn" class="ib big" title="Menu" data-ico="menu"><span class="dot" id="menuDot"></span></button>
+    <button id="chatBtn" class="ib big" title="Chat" data-ico="chat"></button>
+    <button id="emoteBtn" class="ib big" title="Emote" data-ico="face"></button>
+    <button id="tradeBtn" class="ib big hot" title="Trade aktif" data-ico="swap"></button>
+    <button id="signBtn" class="ib big" title="Ubah papan" data-ico="pencil"></button>
+  </div>
+
+  <div id="menuItems" class="npanel">
+    <button data-panel="shop" data-ico="cart"><span class="lbl">Toko</span></button>
+    <button data-panel="cos" data-ico="shirt"><span class="lbl">Pakaian</span></button>
+    <button data-panel="friends" data-ico="star"><span class="lbl">Teman</span></button>
+    <button data-panel="worlds" data-ico="globe"><span class="lbl">Worlds</span></button>
+    <button data-panel="trade" data-ico="swap"><span class="lbl">Trade</span></button>
+    <button data-panel="world" data-ico="wrench"><span class="lbl">World</span></button>
+    <button data-panel="sound" data-ico="sound"><span class="lbl">Suara</span></button>
+    <button data-panel="help" data-ico="help"><span class="lbl">Bantuan</span></button>
+    <button id="logoutBtn" data-ico="exit"><span class="lbl">Keluar akun</span></button>
+  </div>
+  <div id="emotes" class="npanel"></div>
+
+  <!-- Hotbar cepat + tombol buka/tutup inventori -->
+  <div id="hotwrap">
+    <button id="invToggle" title="Inventori (I)"><i></i><i></i></button>
+    <div id="hotbar"></div>
+  </div>
+
+  <!-- Inventori penuh -->
+  <div id="invpanel" class="npanel">
+    <div id="invmain">
+      <div id="invsearch"><input id="invq" placeholder="Cari item..." maxlength="20" autocapitalize="off"></div>
+      <div id="invgrid"></div>
+    </div>
+    <div id="invside">
+      <button id="searchTg" class="tg" title="Cari"><span data-ico="search" data-ico-size="18"></span><span class="knob"></span></button>
+      <button class="sbtn" id="bRecycle">RECYCLE</button>
+      <button class="sbtn" id="bStore">STORE</button>
+      <button class="sbtn" id="bDrop">DROP</button>
+      <button class="sbtn" id="bInfo">INFO</button>
+    </div>
+  </div>
+
+  <div id="chatlog"></div>
+  <div id="chatbar"><input id="chatin" maxlength="120" placeholder="Ketik pesan..." enterkeyhint="send"><button id="chatSend" class="ib" title="Kirim" data-ico="send"></button><button id="chatX" class="ib" title="Tutup" data-ico="close"></button></div>
+
+  <div id="touchpad">
+    <div class="tgroup" id="tLR">
+      <button id="tLeft" title="Kiri"><svg viewBox="0 0 100 70"><polygon points="4,35 44,4 44,20 96,20 96,50 44,50 44,66"/></svg></button>
+      <button id="tRight" title="Kanan"><svg viewBox="0 0 100 70"><polygon points="96,35 56,4 56,20 4,20 4,50 56,50 56,66"/></svg></button>
+    </div>
+    <div class="tgroup" id="tRB">
+      <button id="tJump" class="round" title="Lompat"><svg viewBox="0 0 70 70"><polygon points="35,8 62,38 46,38 46,62 24,62 24,38 8,38"/></svg></button>
+      <button id="tPunch" class="round" title="Pukul / pakai"><span data-ico="fist" data-ico-size="40"></span></button>
+    </div>
+  </div>
+</div>
+
+<div id="panel" class="npanel">
+  <div class="phead"><b id="panelTitle"></b><button id="panelClose" title="Tutup" data-ico="close" data-ico-size="20"></button></div>
+  <div id="panelBody"></div>
+</div>
+<div id="reqbar"></div>
+<div id="pmenu" class="npanel"></div>
+<div id="toast"></div>
+<script src="config.js"></script>
+<script src="shared.js"></script>
+<script src="sound.js"></script>
+<script src="icons.js"></script>
+<script src="game.js"></script>
+</body>
+</html>

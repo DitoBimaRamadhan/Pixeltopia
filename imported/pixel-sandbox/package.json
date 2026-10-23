@@ -1,0 +1,26 @@
+{
+  "name": "pixel-sandbox",
+  "version": "1.4.0",
+  "description": "Prototype game sandbox 2D multiplayer (orisinal) - Node.js + ws + HTML5 Canvas",
+  "main": "server/index.js",
+  "private": true,
+  "scripts": {
+    "start": "node server/index.js",
+    "test": "node test/storage.test.js && node test/multiplayer.test.js && node test/features.test.js && node test/drop.test.js && node test/persist.test.js",
+    "cap:sync": "cap sync android",
+    "apk": "cap sync android && cd android && ./gradlew assembleDebug"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "pg": "^8.23.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@capacitor/android": "^7.6.9",
+    "@capacitor/cli": "^7.6.9",
+    "@capacitor/core": "^7.6.9"
+  }
+}

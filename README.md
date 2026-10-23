@@ -70,3 +70,10 @@ pixeltopia/
 - Craft UI (`C`): Wood×2→Plank, Wood×1→Torch×2
 - Sand tile + Azureoot crop
 - See `PHASE2.md` for weather, multiplayer prep, APK notes
+
+## Related / legacy sources
+
+The earlier **Pixel Sandbox** (Node + Canvas + Capacitor) prototype owned by the
+same author is archived under [`imported/pixel-sandbox/`](imported/pixel-sandbox/)
+for reference. Pixeltopia itself remains the Godot 4 game. See
+[`imported/IMPORT.md`](imported/IMPORT.md).
