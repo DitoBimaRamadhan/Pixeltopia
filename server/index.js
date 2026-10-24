@@ -27,7 +27,9 @@ const { createStore } = require('./lib/store');
   }
 })();
 
-const PORT = Number(process.env.PORT || 8787);
+// Hosts inject PORT (Back4app/Zeabur/HF/Render…). Deno Deploy has no PORT var, so default to 8000 there.
+const PORT = Number(process.env.PORT || (process.env.DENO_DEPLOY ? 8000 : 8787));
+const HEARTBEAT_MS = Math.max(5000, Number(process.env.HEARTBEAT_MS || 25000));
 const HOST = process.env.HOST || '0.0.0.0';
 const JWT_SECRET = process.env.JWT_SECRET || 'pixeltopia-local-dev-only-change-me';
 const TICK_HZ = Math.max(1, Math.min(20, Number(process.env.TICK_HZ || 10)));
@@ -68,11 +70,28 @@ function findShard(id) {
 function totalConnections() {
   return shards.reduce((n, s) => n + s.connections.size, 0);
 }
-function serverListPayload() {
+// Public address as seen by clients. Behind an HTTPS proxy (Deno Deploy, Back4app,
+// Cloudflare tunnel…) we must advertise the proxy host + 443/wss, not the internal port.
+function publicEndpoint(req) {
+  const h = (req && req.headers) || {};
+  const first = (v) => String(v || '').split(',')[0].trim();
+  const proto = first(process.env.PUBLIC_PROTO || h['x-forwarded-proto'] || (h['cf-visitor'] && /https/.test(h['cf-visitor']) ? 'https' : '')) || 'http';
+  const rawHost = first(process.env.PUBLIC_HOST || h['x-forwarded-host'] || h.host) || '127.0.0.1';
+  const m = rawHost.match(/^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/);
+  const host = m ? m[1] : rawHost;
+  const secure = proto === 'https' || proto === 'wss';
+  const port = Number(process.env.PUBLIC_PORT || first(h['x-forwarded-port']) || (m && m[2]) || (secure ? 443 : (h.host ? 80 : PORT)));
+  const defPort = secure ? 443 : 80;
+  const authority = port === defPort ? host : `${host}:${port}`;
+  return { host, port, secure, httpBase: `${secure ? 'https' : 'http'}://${authority}`, wsBase: `${secure ? 'wss' : 'ws'}://${authority}` };
+}
+function serverListPayload(req) {
+  const pub = publicEndpoint(req);
   return shards.map((s) => ({
     id: s.id, name: s.name, shard: s.shard,
-    host: process.env.PUBLIC_HOST || '127.0.0.1', port: PORT,
+    host: pub.host, port: pub.port, secure: pub.secure,
     wsPath: `/ws?shard=${encodeURIComponent(s.id)}`,
+    wsUrl: `${pub.wsBase}/ws?shard=${encodeURIComponent(s.id)}`,
     players: s.connections.size, maxPlayers: s.maxPlayers,
     load: s.connections.size / Math.max(1, s.maxPlayers),
     tickHz: TICK_HZ, interestRadius: INTEREST_RADIUS,
@@ -123,19 +142,20 @@ const server = http.createServer(async (req, res) => {
         ok: true, mode: 'shared-process', storage: store.kind, shards: shards.length,
         worlds: worlds.listWorlds().length, connections: totalConnections(),
         capacity: SHARD_COUNT * MAX_CONN_PER_SHARD, tickHz: TICK_HZ,
+        public: publicEndpoint(req).httpBase, runtime: typeof Deno !== 'undefined' ? 'deno' : 'node',
       });
     }
     if (req.method === 'GET' && url.pathname === '/stats') {
       return sendJson(res, 200, {
         connections: totalConnections(), capacity: SHARD_COUNT * MAX_CONN_PER_SHARD,
-        shards: serverListPayload(), worlds: worlds.listWorlds(),
+        shards: serverListPayload(req), worlds: worlds.listWorlds(),
         memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
         tickHz: TICK_HZ, mode: 'shared-process', storage: store.kind,
       });
     }
     if (req.method === 'GET' && url.pathname === '/servers') {
       return sendJson(res, 200, {
-        servers: serverListPayload(), balancer: 'least-connections',
+        servers: serverListPayload(req), balancer: 'least-connections',
         mode: 'shared-process', note: 'All gateways share one Node process and one world registry.',
       });
     }
@@ -301,7 +321,21 @@ function broadcastAllGateways(obj) {
   for (const s of shards) for (const ws of s.connections) safeSend(ws, obj);
 }
 
+// Server-side heartbeat: keeps proxies (Cloudflare ~100s idle, Deno Deploy idle shutdown)
+// from dropping quiet sockets, and reaps dead clients.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws._alive === false) { try { ws.terminate(); } catch { /* ignore */ } continue; }
+    ws._alive = false;
+    try { ws.ping(); } catch { /* ignore */ }
+  }
+}, HEARTBEAT_MS);
+wss.on('close', () => clearInterval(heartbeat));
+
 wss.on('connection', (ws, req) => {
+  ws._alive = true;
+  ws.on('pong', () => { ws._alive = true; });
+  ws.on('message', () => { ws._alive = true; });
   const url = new URL(req.url || '/ws', `http://${req.headers.host || 'localhost'}`);
   const token = url.searchParams.get('token') || '';
   const authPayload = auth.verifyToken(token);

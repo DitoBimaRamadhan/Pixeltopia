@@ -4,6 +4,7 @@
   "private": true,
   "description": "Pixeltopia shared multiplayer server (auth+worlds+sync, Postgres/file persistence)",
   "main": "index.js",
+  "type": "commonjs",
   "scripts": {
     "start": "node index.js",
     "loadtest": "node loadtest.js"
