@@ -204,20 +204,31 @@ async function issueToken(userId, username) {
 }
 
 // ---------------------------------------------------------------- persistence
-const savingWorlds = new Set();
-async function saveWorld(world, reason) {
-  if (!world || !world.dirty || savingWorlds.has(world.name)) return;
-  savingWorlds.add(world.name);
-  world.dirty = false;
-  try {
-    await store.saveWorld(world);
-  } catch (e) {
-    world.dirty = true;
-    console.error(`[store] save world ${world.name} (${reason}) failed:`, e.message);
-  } finally { savingWorlds.delete(world.name); }
+// One in-flight save per world. Edits made while a save is running re-mark the world dirty;
+// the running save loops until clean, and callers (e.g. shutdown) await that same promise,
+// so the newest grid is never skipped.
+const savingWorlds = new Map();
+function saveWorld(world, reason) {
+  if (!world) return Promise.resolve();
+  if (savingWorlds.has(world.name)) return savingWorlds.get(world.name);
+  if (!world.dirty) return Promise.resolve();
+  const p = (async () => {
+    while (world.dirty) {
+      world.dirty = false;
+      try {
+        await store.saveWorld(world);
+      } catch (e) {
+        world.dirty = true;
+        console.error(`[store] save world ${world.name} (${reason}) failed:`, e.message);
+        break;
+      }
+    }
+  })().finally(() => { savingWorlds.delete(world.name); });
+  savingWorlds.set(world.name, p);
+  return p;
 }
 async function flushAllWorlds(reason) {
-  await Promise.all(worlds.allWorlds().filter((w) => w.dirty).map((w) => saveWorld(w, reason)));
+  await Promise.all(worlds.allWorlds().filter((w) => w.dirty || savingWorlds.has(w.name)).map((w) => saveWorld(w, reason)));
 }
 function sanitizeProfile(raw) {
   if (!raw || typeof raw !== 'object') return null;
@@ -229,14 +240,24 @@ function sanitizeProfile(raw) {
   if (size > 64 * 1024) return null;
   return out;
 }
-async function saveProfile(player) {
-  if (!player.authed || !player.pendingProfile) return;
-  const data = player.pendingProfile;
-  player.pendingProfile = null;
-  try { await store.saveProfile(player.id, data); } catch (e) {
-    if (!player.pendingProfile) player.pendingProfile = data;
-    console.error(`[store] save profile ${player.username} failed:`, e.message);
-  }
+// Serialize profile writes per player: concurrent UPSERTs could land out of order and
+// overwrite a newer profile with an older one. A running save picks up the latest pending one.
+function saveProfile(player) {
+  if (!player.authed) return Promise.resolve();
+  if (player.savingProfile) return player.savingProfile;
+  if (!player.pendingProfile) return Promise.resolve();
+  player.savingProfile = (async () => {
+    while (player.pendingProfile) {
+      const data = player.pendingProfile;
+      player.pendingProfile = null;
+      try { await store.saveProfile(player.id, data); } catch (e) {
+        if (!player.pendingProfile) player.pendingProfile = data;
+        console.error(`[store] save profile ${player.username} failed:`, e.message);
+        break;
+      }
+    }
+  })().finally(() => { player.savingProfile = null; });
+  return player.savingProfile;
 }
 
 const wss = new WebSocketServer({
