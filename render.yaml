@@ -1,0 +1,30 @@
+# Render Blueprint — Pixeltopia multiplayer server (long-lived WebSockets).
+# One-click: https://render.com/deploy?repo=https://github.com/DitoBimaRamadhan/Pixeltopia
+services:
+  - type: web
+    name: pixeltopia-server
+    runtime: node
+    plan: free
+    region: singapore
+    rootDir: server
+    buildCommand: npm ci --omit=dev
+    startCommand: node index.js
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: DATABASE_URL
+        sync: false          # paste the Neon/Supabase connection string in the Render dashboard
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PG_DRIVER
+        value: pg
+      - key: SHARD_COUNT
+        value: "2"
+      - key: MAX_CONN_PER_SHARD
+        value: "150"
+      - key: TICK_HZ
+        value: "10"
+      - key: PUBLIC_HOST
+        value: pixeltopia-server.onrender.com
