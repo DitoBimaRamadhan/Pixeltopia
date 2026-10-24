@@ -115,6 +115,7 @@ function readBody(req) {
   });
 }
 function sendJson(res, code, obj) {
+  if (obj && obj.error) res._logError = obj.error;
   const body = JSON.stringify(obj);
   res.writeHead(code, {
     'Content-Type': 'application/json; charset=utf-8',
@@ -136,6 +137,13 @@ const server = http.createServer(async (req, res) => {
     return res.end();
   }
   const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  if (req.method === 'POST' && (url.pathname === '/register' || url.pathname === '/login')) {
+    const t0 = Date.now();
+    res.on('finish', () => {
+      const ip = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress || '-';
+      console.log(`[auth] ${url.pathname.slice(1)} status=${res.statusCode} user=${JSON.stringify(res._logUser || '')} ms=${Date.now() - t0} ip=${ip} ua=${JSON.stringify(String(req.headers['user-agent'] || '').slice(0, 80))}` + (res._logError ? ` error=${JSON.stringify(res._logError)}` : ''));
+    });
+  }
   try {
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, {
@@ -165,6 +173,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/register') {
       const body = await readBody(req);
       const username = String(body.username || '').trim();
+      res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
       if (username.length < 3 || username.length > 24) return sendJson(res, 400, { error: 'Username 3–24 karakter.' });
       if (!/^[a-zA-Z0-9_]+$/.test(username)) return sendJson(res, 400, { error: 'Username hanya huruf/angka/_.' });
@@ -179,6 +188,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/login') {
       const body = await readBody(req);
       const username = String(body.username || '').trim();
+      res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
       const row = username ? await store.getUser(username) : null;
       if (!row || !auth.scryptVerify(password, row.passwordHash)) {
