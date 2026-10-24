@@ -19,11 +19,14 @@ var _mp_chat_log: PackedStringArray = PackedStringArray()
 var _trade: Dictionary = {}
 var _rain_secs: float = 0.0
 var _night_logged: bool = false
+var _profile_ready: bool = false
+var _profile_cd: float = 0.0
+const PROFILE_SAVE_SECS := 20.0
 
 func _ready() -> void:
 	var _who := Session.username if Session and Session.username else "player"
 	var _mode := "offline" if Session and Session.offline_mode else "online"
-	DisplayServer.window_set_title("Pixeltopia — v1.6 (%s / %s)" % [_who, _mode])
+	DisplayServer.window_set_title("Pixeltopia — v1.7 (%s / %s)" % [_who, _mode])
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)
@@ -88,6 +91,7 @@ func _setup_multiplayer() -> void:
 	net.player_join.connect(func (p): remotes.add_player(p))
 	net.player_left.connect(func (m): remotes.remove_player(str(m.get("id", ""))))
 	net.chat_message.connect(_on_chat)
+	net.profile_loaded.connect(_on_profile_loaded)
 	net.trade_event.connect(_on_trade)
 	net.net_error.connect(func (m):
 		if hud.has_method("show_status"):
@@ -96,6 +100,46 @@ func _setup_multiplayer() -> void:
 	net.connect_to_session()
 	if hud.has_method("bind_net"):
 		hud.bind_net(net, remotes)
+
+func _profile_dict() -> Dictionary:
+	return {
+		"inventory": inv.to_save(),
+		"progress": progress.to_save(),
+		"achievements": achievements.to_save(),
+		"quests": quests.to_save(),
+		"avatar": player.look_to_save(),
+	}
+
+## Server sent this account's cloud profile (or {} for a brand-new account).
+func _on_profile_loaded(profile: Dictionary) -> void:
+	if not profile.is_empty():
+		if profile.has("inventory"):
+			inv.from_save(profile["inventory"])
+		if profile.has("progress"):
+			progress.from_save(profile["progress"])
+		if profile.has("achievements"):
+			achievements.from_save(profile["achievements"])
+		if profile.has("quests"):
+			quests.from_save(profile["quests"])
+		if profile.has("avatar"):
+			player.set_look_from_dict(profile["avatar"])
+		if hud.has_method("set_xp_label"):
+			hud.set_xp_label(progress.level, progress.xp, progress.xp_to_next())
+		if hud.has_method("show_status"):
+			hud.show_status("Profil online dimuat (Lv %d)." % progress.level)
+	_profile_ready = true
+	_push_profile(true)
+
+func _push_profile(now: bool = false) -> void:
+	if net == null or not is_instance_valid(net) or not _profile_ready or not net.online:
+		return
+	net.save_profile(_profile_dict(), now)
+	_profile_cd = PROFILE_SAVE_SECS
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST or what == NOTIFICATION_APPLICATION_PAUSED \
+			or what == NOTIFICATION_WM_GO_BACK_REQUEST or what == NOTIFICATION_EXIT_TREE:
+		_push_profile(true)
 
 func _on_net_connected() -> void:
 	if hud.has_method("set_mp_status"):
@@ -176,6 +220,10 @@ func _on_trade(data: Dictionary) -> void:
 		net.sync_inventory(inv)
 
 func _process(delta: float) -> void:
+	if _profile_ready:
+		_profile_cd -= delta
+		if _profile_cd <= 0.0:
+			_push_profile(false)
 	if net and net.is_online():
 		var t: Vector2i = world.world_to_tile(player.global_position)
 		net.send_move(t.x, t.y, player.global_position.x, player.global_position.y)

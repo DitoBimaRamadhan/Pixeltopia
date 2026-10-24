@@ -13,6 +13,10 @@ signal chat_message(data: Dictionary)
 signal trade_event(data: Dictionary)
 signal net_error(message: String)
 signal left_world
+signal profile_loaded(profile: Dictionary)
+
+var is_guest: bool = true
+var storage: String = ""
 
 var _peer: WebSocketPeer = WebSocketPeer.new()
 var _active: bool = false
@@ -89,7 +93,11 @@ func _handle(raw: String) -> void:
 			var you: Dictionary = msg.get("you", {})
 			my_id = str(you.get("id", ""))
 			my_username = str(you.get("username", Session.username))
+			is_guest = bool(you.get("guest", false))
+			storage = str(msg.get("storage", ""))
 			welcome.emit(msg)
+			var prof: Variant = msg.get("profile", null)
+			profile_loaded.emit(prof if typeof(prof) == TYPE_DICTIONARY else {})
 			if msg.has("worlds"):
 				worlds_list.emit(msg["worlds"])
 		"world_state":
@@ -163,6 +171,12 @@ func sync_inventory(inv: Node) -> void:
 		if id >= 0 and n > 0:
 			items[str(id)] = int(items.get(str(id), 0)) + n
 	send_dict({"t": "inv_sync", "items": items, "gems": inv.gems})
+
+## Cloud save of the account profile (inventory/backpack, XP, badges, avatar).
+func save_profile(profile: Dictionary, now: bool = false) -> void:
+	if is_guest:
+		return
+	send_dict({"t": "profile_save", "profile": profile, "now": now})
 
 func trade_request(to_id: String) -> void:
 	send_dict({"t": "trade_request", "to": to_id})

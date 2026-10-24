@@ -19,12 +19,23 @@ func _ready() -> void:
 	btn_login.pressed.connect(_on_masuk)
 	btn_register.pressed.connect(func (): get_tree().change_scene_to_file("res://scenes/auth/register.tscn"))
 	btn_offline.pressed.connect(_on_offline)
+	_add_server_picker()
 	user_edit.text_submitted.connect(func (_t): _on_masuk())
 	pass_edit.text_submitted.connect(func (_t): _on_masuk())
 	if Session.is_logged_in():
 		status_lbl.text = "Sesi tersimpan: %s — masuk ke daftar server…" % Session.username
 		await get_tree().create_timer(0.35).timeout
 		get_tree().change_scene_to_file("res://scenes/auth/server_list.tscn")
+
+func _add_server_picker() -> void:
+	var vbox: VBoxContainer = user_edit.get_parent()
+	var picker := ServerPicker.new()
+	picker.name = "ServerPicker"
+	vbox.add_child(picker)
+	vbox.move_child(picker, user_edit.get_index())
+	picker.server_changed.connect(func (url):
+		status_lbl.text = "Server diganti ke %s" % url
+	)
 
 func _style_round_buttons() -> void:
 	## True circular buttons (≥48dp), not rounded rectangles.

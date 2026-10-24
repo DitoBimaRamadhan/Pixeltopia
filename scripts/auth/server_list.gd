@@ -16,7 +16,7 @@ var _servers: Array = []
 func _ready() -> void:
 	DisplayServer.window_set_title("Pixeltopia — Pilih Server")
 	_style_round_buttons()
-	user_lbl.text = "Pemain: %s%s" % [Session.username, " (offline)" if Session.offline_mode else ""]
+	user_lbl.text = "Pemain: %s%s" % [Session.username, " (offline)" if Session.offline_mode else "  ·  " + Session.server_label()]
 	_api.attach(http)
 	_api.request_finished.connect(_on_api)
 	btn_join.pressed.connect(_on_join)
