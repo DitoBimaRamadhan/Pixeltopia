@@ -3,3 +3,7 @@ data/users.json
 data/*.db
 .env
 *.log
+.neon
+data/worlds/
+data/profiles.json
+data/trades.log

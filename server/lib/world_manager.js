@@ -83,17 +83,54 @@ function createWorldManager() {
     const gen = generateGrid(seed);
     const world = {
       name, seed: gen.seed, grid: gen.grid, spawn: gen.spawn,
-      lockOwnerId: null, lockOwnerName: null, createdBy: ownerId || null,
-      createdAt: Date.now(), players: new Map(),
+      lockOwnerId: null, lockOwnerName: null, access: [], createdBy: ownerId || null,
+      createdAt: Date.now(), players: new Map(), dirty: true,
     };
     worlds.set(name, world);
-    return { world };
+    return { world, created: true };
+  }
+  /** Restore a persisted world (from Postgres / file store). */
+  function hydrate(data) {
+    const name = normalizeWorldName(data.name);
+    if (!name || !data.grid || data.grid.length !== W * H) return null;
+    const world = {
+      name, seed: data.seed >>> 0, grid: Int32Array.from(data.grid), spawn: data.spawn || { x: 32, y: 10 },
+      lockOwnerId: data.lockOwnerId || null, lockOwnerName: data.lockOwnerName || null,
+      access: Array.isArray(data.access) ? data.access.slice(0, 64) : [],
+      createdBy: data.createdBy || null, createdAt: data.createdAt || Date.now(),
+      players: new Map(), dirty: false,
+    };
+    worlds.set(name, world);
+    return world;
+  }
+  function allWorlds() { return [...worlds.values()]; }
+  /** World Lock access list: [{id, username}] — owner + listed players can edit. */
+  function hasAccess(world, playerId) {
+    return (world.access || []).some((a) => a.id === playerId);
+  }
+  function grantAccess(world, owner, target) {
+    if (!world.lockOwnerId || world.lockOwnerId !== owner.id) return { error: 'Hanya pemilik World Lock yang bisa memberi akses.' };
+    if (target.id === owner.id) return { error: 'Kamu sudah pemilik dunia ini.' };
+    if (hasAccess(world, target.id)) return { error: `${target.username} sudah punya akses.` };
+    if ((world.access || []).length >= 64) return { error: 'Daftar akses penuh (maks 64).' };
+    world.access = [...(world.access || []), { id: target.id, username: target.username }];
+    world.dirty = true;
+    return { ok: true };
+  }
+  function revokeAccess(world, owner, usernameOrId) {
+    if (!world.lockOwnerId || world.lockOwnerId !== owner.id) return { error: 'Hanya pemilik World Lock yang bisa mencabut akses.' };
+    const key = String(usernameOrId).toLowerCase();
+    const before = (world.access || []).length;
+    world.access = (world.access || []).filter((a) => a.id !== usernameOrId && String(a.username).toLowerCase() !== key);
+    if (world.access.length === before) return { error: 'Pemain tidak ada di daftar akses.' };
+    world.dirty = true;
+    return { ok: true };
   }
   function getWorld(name) { return worlds.get(normalizeWorldName(name)); }
   function listWorlds() {
     const out = [];
     for (const w of worlds.values()) {
-      out.push({ name: w.name, players: w.players.size, locked: !!w.lockOwnerId, lockOwner: w.lockOwnerName || null, seed: w.seed });
+      out.push({ name: w.name, players: w.players.size, locked: !!w.lockOwnerId, lockOwner: w.lockOwnerName || null, seed: w.seed, access: (w.access || []).map((a) => a.username) });
     }
     out.sort((a, b) => a.name.localeCompare(b.name));
     return out;
@@ -101,11 +138,12 @@ function createWorldManager() {
   function gridArray(world) { return Array.from(world.grid); }
   function canEdit(world, player) {
     if (!world.lockOwnerId) return true;
-    return world.lockOwnerId === player.id;
+    return world.lockOwnerId === player.id || hasAccess(world, player.id);
   }
   function setTile(world, x, y, id) {
     if (x < 0 || y < 0 || x >= W || y >= H) return false;
     world.grid[y * W + x] = id | 0;
+    world.dirty = true;
     return true;
   }
   function getTile(world, x, y) {
@@ -122,7 +160,7 @@ function createWorldManager() {
       return { error: 'Tidak bisa memecah World Lock milik orang lain.' };
     }
     setTile(world, x, y, AIR);
-    if (id === WORLD_LOCK) { world.lockOwnerId = null; world.lockOwnerName = null; }
+    if (id === WORLD_LOCK) { world.lockOwnerId = null; world.lockOwnerName = null; world.access = []; }
     return { ok: true, x, y, id: AIR, broke: id };
   }
   function place(world, player, x, y, tileId) {
@@ -134,6 +172,7 @@ function createWorldManager() {
       if (world.lockOwnerId) return { error: 'Dunia sudah terkunci.' };
       world.lockOwnerId = player.id;
       world.lockOwnerName = player.username;
+      world.access = [];
     }
     setTile(world, x, y, tileId);
     return { ok: true, x, y, id: tileId };
@@ -149,9 +188,9 @@ function createWorldManager() {
     world.players.delete(player.id);
     if (player.worldName === world.name) player.worldName = null;
   }
-  ensureStart();
   return {
-    W, H, WORLD_LOCK, AIR, ensureStart, createWorld, getWorld, listWorlds,
+    W, H, WORLD_LOCK, AIR, ensureStart, createWorld, getWorld, listWorlds, hydrate, allWorlds,
+    hasAccess, grantAccess, revokeAccess,
     gridArray, canEdit, punch, place, join, leave, normalizeWorldName,
   };
 }
