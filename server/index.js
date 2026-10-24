@@ -41,6 +41,9 @@ const COMPRESS_WS = process.env.COMPRESS_WS !== '0';
 const MAX_CHAT_LEN = 160;
 const SAVE_INTERVAL_MS = Math.max(5000, Number(process.env.SAVE_INTERVAL_MS || 30000));
 const TOKEN_TTL_SEC = 60 * 60 * 24 * 14;
+const USERNAME_MIN = 3;
+const USERNAME_MAX = 10;
+const USERNAME_LEN_ERROR = `Username ${USERNAME_MIN}–${USERNAME_MAX} karakter.`;
 
 const store = createStore({ dataDir: DATA_DIR });
 const auth = createAuth({ jwtSecret: JWT_SECRET });
@@ -175,7 +178,7 @@ const server = http.createServer(async (req, res) => {
       const username = String(body.username || '').trim();
       res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
-      if (username.length < 3 || username.length > 24) return sendJson(res, 400, { error: 'Username 3–24 karakter.' });
+      if (username.length < USERNAME_MIN || username.length > USERNAME_MAX) return sendJson(res, 400, { error: USERNAME_LEN_ERROR });
       if (!/^[a-zA-Z0-9_]+$/.test(username)) return sendJson(res, 400, { error: 'Username hanya huruf/angka/_.' });
       if (password.length < 4) return sendJson(res, 400, { error: 'Password minimal 4 karakter.' });
       if (await store.getUser(username)) return sendJson(res, 409, { error: 'Username sudah dipakai.' });
@@ -190,7 +193,8 @@ const server = http.createServer(async (req, res) => {
       const username = String(body.username || '').trim();
       res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
-      const row = username ? await store.getUser(username) : null;
+      if (username.length < USERNAME_MIN || username.length > USERNAME_MAX) return sendJson(res, 400, { error: USERNAME_LEN_ERROR });
+      const row = await store.getUser(username);
       if (!row || !auth.scryptVerify(password, row.passwordHash)) {
         return sendJson(res, 401, { error: 'Username atau password salah.' });
       }

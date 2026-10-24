@@ -14,6 +14,7 @@ var _api := AuthApiClient.new()
 func _ready() -> void:
 	DisplayServer.window_set_title("Pixeltopia — Daftar")
 	_style_round_buttons()
+	user_edit.max_length = 10
 	_api.attach(http)
 	_api.request_finished.connect(_on_api)
 	btn_daftar.pressed.connect(_on_daftar)
@@ -41,8 +42,8 @@ func _on_daftar() -> void:
 	var u := user_edit.text.strip_edges()
 	var p := pass_edit.text
 	var c := confirm_edit.text
-	if u.length() < 3:
-		status_lbl.text = "Username minimal 3 karakter."
+	if u.length() < 3 or u.length() > 10:
+		status_lbl.text = "Username 3–10 karakter."
 		return
 	if p.length() < 4:
 		status_lbl.text = "Password minimal 4 karakter."

@@ -70,6 +70,9 @@ func _on_masuk() -> void:
 	if u.is_empty() or p.is_empty():
 		status_lbl.text = "Isi username dan password."
 		return
+	if u.length() < 3 or u.length() > 10:
+		status_lbl.text = "Username 3–10 karakter."
+		return
 	status_lbl.text = "Menghubungi %s …" % Session.api_base_url
 	_set_busy(true)
 	_api.login(Session.api_base_url, u, p)
