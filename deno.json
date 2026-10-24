@@ -3,7 +3,7 @@
     "install": "cd server && deno install",
     "runtime": {
       "type": "dynamic",
-      "entrypoint": "./server/index.js",
+      "entrypoint": "./index.js",
       "cwd": "./server"
     }
   }

@@ -5,7 +5,7 @@ const SAVE_PATH := "user://pixeltopia_session.cfg"
 const SECTION := "session"
 
 ## Public Pixeltopia server (Render free web service + Neon Postgres). See DEPLOY.md.
-const DEFAULT_ONLINE_URL := "https://pixeltopia-server.onrender.com"
+const DEFAULT_ONLINE_URL := "https://pixeltopia-server.ditobimaramadhan.deno.net"
 const LOCAL_URL := "http://127.0.0.1:8787"
 const LOCAL_URL_ANDROID_EMU := "http://10.0.2.2:8787"
 const MODE_ONLINE := "online"
