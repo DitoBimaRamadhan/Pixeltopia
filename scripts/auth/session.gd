@@ -4,7 +4,7 @@ extends Node
 const SAVE_PATH := "user://pixeltopia_session.cfg"
 const SECTION := "session"
 
-## Public Pixeltopia server (Render free web service + Neon Postgres). See DEPLOY.md.
+## Public Pixeltopia server (Deno Deploy + Neon Postgres). See DEPLOY.md.
 const DEFAULT_ONLINE_URL := "https://pixeltopia-server.ditobimaramadhan.deno.net"
 const LOCAL_URL := "http://127.0.0.1:8787"
 const LOCAL_URL_ANDROID_EMU := "http://10.0.2.2:8787"
@@ -40,6 +40,10 @@ static func normalize_url(raw: String) -> String:
 		u = u.substr(0, u.length() - 1)
 	return u
 
+## The old Render server (*.onrender.com) is shut down; any saved/typed address there means "Online".
+static func is_retired_url(u: String) -> bool:
+	return u.to_lower().find("onrender.com") >= 0
+
 func _apply_server_mode() -> void:
 	match server_mode:
 		MODE_LOCAL:
@@ -58,6 +62,9 @@ func set_server(mode: String, p_custom_url: String = "") -> void:
 	server_mode = mode
 	if mode == MODE_CUSTOM:
 		custom_url = normalize_url(p_custom_url)
+		if is_retired_url(custom_url):
+			server_mode = MODE_ONLINE
+			custom_url = ""
 	_apply_server_mode()
 	if before != api_base_url and not offline_mode:
 		token = ""
@@ -154,3 +161,21 @@ func _load() -> void:
 		selected_server = parsed
 	else:
 		selected_server = {}
+	_migrate_retired_server(str(cfg.get_value(SECTION, "api_base_url", "")))
+
+## Saves pointing at the retired Render server (custom URL, or an older default) get 404s:
+## move them to the Online server and log out (Render tokens are not valid there).
+func _migrate_retired_server(saved_url: String) -> void:
+	var dead_custom := is_retired_url(custom_url)
+	var dead_saved := is_retired_url(saved_url) and server_mode != MODE_LOCAL
+	if not dead_custom and not dead_saved:
+		return
+	server_mode = MODE_ONLINE
+	custom_url = ""
+	api_base_url = DEFAULT_ONLINE_URL
+	selected_server = {} if not offline_mode else selected_server
+	if not offline_mode:
+		token = ""
+		username = ""
+		user_id = ""
+	_save()

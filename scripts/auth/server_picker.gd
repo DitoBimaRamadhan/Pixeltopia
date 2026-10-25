@@ -28,7 +28,7 @@ func _ready() -> void:
 	row2.add_theme_constant_override("separation", 6)
 	add_child(row2)
 	_url_edit = LineEdit.new()
-	_url_edit.placeholder_text = "contoh: https://servermu.onrender.com atau 192.168.1.5:8787"
+	_url_edit.placeholder_text = "contoh: https://servermu.contoh.com atau 192.168.1.5:8787"
 	_url_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_url_edit.custom_minimum_size = Vector2(0, 40)
 	row2.add_child(_url_edit)

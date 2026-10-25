@@ -69,6 +69,6 @@ World state is flushed to Postgres on SIGTERM, so nothing is lost when it sleeps
 
 ## 3. Game client
 
-- Default server: `Session.DEFAULT_ONLINE_URL` (`https://pixeltopia-server.onrender.com`).
+- Default server: `Session.DEFAULT_ONLINE_URL` (`https://pixeltopia-server.ditobimaramadhan.deno.net`). Saved `*.onrender.com` addresses (retired) are migrated to Online on launch.
 - Login screen → **Server** button: *Online* / *Lokal* (`127.0.0.1:8787`, emulator `10.0.2.2:8787`) / *Custom URL*.
   The choice is saved in `user://pixeltopia_session.cfg`.

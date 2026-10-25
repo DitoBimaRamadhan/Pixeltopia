@@ -61,6 +61,9 @@ func _on_completed(result: int, response_code: int, _headers: PackedStringArray,
 	var data: Dictionary = parsed if typeof(parsed) == TYPE_DICTIONARY else {"raw": text}
 	if response_code >= 200 and response_code < 300:
 		request_finished.emit(true, data, "")
+	elif response_code == 404:
+		# Wrong/retired server address (e.g. the old Render URL) — the Pixeltopia API never answers 404.
+		request_finished.emit(false, data, "Server tidak ditemukan (404). Pilih server Online.")
 	else:
 		var msg := str(data.get("error", data.get("message", "HTTP %s" % response_code)))
 		request_finished.emit(false, data, msg)
