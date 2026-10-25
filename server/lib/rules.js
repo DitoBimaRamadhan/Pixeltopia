@@ -1,0 +1,266 @@
+'use strict';
+/**
+ * Pixeltopia game rules, ported from the Godot client so the server can become the source of truth
+ * for inventory, drops and gems. Sources (keep in sync; server/test/rules_parity.test.js checks them
+ * against tools/export_rules.gd output):
+ *   scripts/tiles.gd      tile ids, solid/soil/placeable/seed/crop, grow times, seed<->crop
+ *   scripts/items.gd      catalog (rarity, prices, can_drop, farmable, seed_drop), drop chances
+ *   scripts/world.gd      break_tile / try_harvest roll order, place_tile checks, FERTILIZER_FACTOR
+ *   scripts/recipes.gd    craft recipes
+ *   scripts/splicing.gd   seed splicing
+ *   scripts/quests.gd     quest definitions + rewards
+ *   scripts/inventory.gd  starter kit, stack limits
+ *
+ * Randomness: every roll takes `rng`, a function returning a float in [0, 1) (e.g. a seeded
+ * mulberry32), and consumes it in the same order as the GDScript code, so a deterministic rng gives
+ * deterministic, replayable drops. Not wired into the server yet.
+ */
+
+const TILE = Object.freeze({
+  AIR: 0, DIRT: 1, GRASS: 2, STONE: 3, SEED: 4, CROP: 5, WOOD: 6, TORCH: 7, PLANK: 8, SAND: 9,
+  SEED_AZURE: 10, CROP_AZURE: 11, WEATHER_MACHINE: 12, FERTILIZER: 13, SEED_EMBER: 14, CROP_EMBER: 15,
+  SEED_MOON: 16, CROP_MOON: 17, SEED_CRYSTAL: 18, CROP_CRYSTAL: 19, WORLD_LOCK: 20,
+});
+const T = TILE;
+
+const TILE_NAMES = Object.freeze({
+  [T.AIR]: 'Air', [T.DIRT]: 'Dirt', [T.GRASS]: 'Grass', [T.STONE]: 'Stone', [T.SEED]: 'Sprout',
+  [T.CROP]: 'Groveberry', [T.WOOD]: 'Wood', [T.TORCH]: 'Torch', [T.PLANK]: 'Plank', [T.SAND]: 'Sand',
+  [T.SEED_AZURE]: 'Azureoot Seed', [T.CROP_AZURE]: 'Azureoot', [T.WEATHER_MACHINE]: 'Weather Machine',
+  [T.FERTILIZER]: 'Fertilizer', [T.SEED_EMBER]: 'Emberfruit Seed', [T.CROP_EMBER]: 'Emberfruit',
+  [T.SEED_MOON]: 'Moonpetal Seed', [T.CROP_MOON]: 'Moonpetal', [T.SEED_CRYSTAL]: 'Crystalroot Seed',
+  [T.CROP_CRYSTAL]: 'Crystalroot', [T.WORLD_LOCK]: 'World Lock',
+});
+
+const RARITY = Object.freeze({ COMMON: 0, UNCOMMON: 1, RARE: 2, EPIC: 3 });
+const R = RARITY;
+
+const SOLID = new Set([T.DIRT, T.GRASS, T.STONE, T.WOOD, T.PLANK, T.SAND, T.WORLD_LOCK]);
+const SOIL = new Set([T.DIRT, T.GRASS]);
+const PLACEABLE = new Set([T.DIRT, T.GRASS, T.STONE, T.WOOD, T.TORCH, T.SEED, T.PLANK, T.SAND,
+  T.SEED_AZURE, T.WEATHER_MACHINE, T.SEED_EMBER, T.SEED_MOON, T.SEED_CRYSTAL, T.WORLD_LOCK]);
+const SEEDS = new Set([T.SEED, T.SEED_AZURE, T.SEED_EMBER, T.SEED_MOON, T.SEED_CRYSTAL]);
+const CROPS = new Set([T.CROP, T.CROP_AZURE, T.CROP_EMBER, T.CROP_MOON, T.CROP_CRYSTAL]);
+const USABLE = new Set([T.FERTILIZER]);
+
+const isSolid = (id) => SOLID.has(id);
+const isSoil = (id) => SOIL.has(id);
+const isPlaceable = (id) => PLACEABLE.has(id);
+const isSeed = (id) => SEEDS.has(id);
+const isCrop = (id) => CROPS.has(id);
+const isUsableItem = (id) => USABLE.has(id);
+
+const SEED_FOR_CROP = { [T.CROP_AZURE]: T.SEED_AZURE, [T.CROP_EMBER]: T.SEED_EMBER, [T.CROP_MOON]: T.SEED_MOON, [T.CROP_CRYSTAL]: T.SEED_CRYSTAL };
+const CROP_FOR_SEED = { [T.SEED_AZURE]: T.CROP_AZURE, [T.SEED_EMBER]: T.CROP_EMBER, [T.SEED_MOON]: T.CROP_MOON, [T.SEED_CRYSTAL]: T.CROP_CRYSTAL };
+const GROW_SECONDS = { [T.SEED]: 8, [T.SEED_AZURE]: 12, [T.SEED_EMBER]: 15, [T.SEED_MOON]: 18, [T.SEED_CRYSTAL]: 24 };
+/** Like Tiles.seed_for_crop: anything that is not a known non-default crop maps to SEED. */
+const seedForCrop = (cropId) => SEED_FOR_CROP[cropId] ?? T.SEED;
+/** Like Tiles.crop_for_seed: anything else maps to CROP. */
+const cropForSeed = (seedId) => CROP_FOR_SEED[seedId] ?? T.CROP;
+/** Seconds to grow, -1 if not a seed. */
+const growSeconds = (seedId) => GROW_SECONDS[seedId] ?? -1;
+const FERTILIZER_FACTOR = 0.5;
+const WORLD_W = 64, WORLD_H = 40;
+
+// ------------------------------------------------------------------ item catalog (items.gd)
+function item(id, name, rarity, sell, buy, farmable, seedDrop) {
+  return Object.freeze({ id, name, rarity, sell, buy, canDrop: true, farmable, seedDrop });
+}
+const CATALOG = Object.freeze({
+  [T.DIRT]: item(T.DIRT, 'Dirt', R.COMMON, 1, 2, true, T.SEED),
+  [T.GRASS]: item(T.GRASS, 'Grass', R.COMMON, 1, 3, true, T.SEED),
+  [T.STONE]: item(T.STONE, 'Stone', R.COMMON, 2, 4, false, -1),
+  [T.SEED]: item(T.SEED, 'Groveberry Seed', R.COMMON, 3, 8, true, T.SEED),
+  [T.CROP]: item(T.CROP, 'Groveberry', R.UNCOMMON, 6, -1, true, T.SEED),
+  [T.WOOD]: item(T.WOOD, 'Wood', R.COMMON, 2, 5, false, -1),
+  [T.TORCH]: item(T.TORCH, 'Torch', R.COMMON, 3, 10, false, -1),
+  [T.PLANK]: item(T.PLANK, 'Plank', R.UNCOMMON, 5, 12, false, -1),
+  [T.SAND]: item(T.SAND, 'Sand', R.COMMON, 1, 3, true, T.SEED),
+  [T.SEED_AZURE]: item(T.SEED_AZURE, 'Azureoot Seed', R.UNCOMMON, 5, 14, true, T.SEED_AZURE),
+  [T.CROP_AZURE]: item(T.CROP_AZURE, 'Azureoot', R.RARE, 12, -1, true, T.SEED_AZURE),
+  [T.WEATHER_MACHINE]: item(T.WEATHER_MACHINE, 'Weather Machine', R.EPIC, 40, 120, false, -1),
+  [T.FERTILIZER]: item(T.FERTILIZER, 'Fertilizer', R.UNCOMMON, 4, 15, false, -1),
+  [T.SEED_EMBER]: item(T.SEED_EMBER, 'Emberfruit Seed', R.RARE, 10, -1, true, T.SEED_EMBER),
+  [T.CROP_EMBER]: item(T.CROP_EMBER, 'Emberfruit', R.RARE, 18, -1, true, T.SEED_EMBER),
+  [T.SEED_MOON]: item(T.SEED_MOON, 'Moonpetal Seed', R.RARE, 14, -1, true, T.SEED_MOON),
+  [T.CROP_MOON]: item(T.CROP_MOON, 'Moonpetal', R.RARE, 22, -1, true, T.SEED_MOON),
+  [T.SEED_CRYSTAL]: item(T.SEED_CRYSTAL, 'Crystalroot Seed', R.EPIC, 28, -1, true, T.SEED_CRYSTAL),
+  [T.CROP_CRYSTAL]: item(T.CROP_CRYSTAL, 'Crystalroot', R.EPIC, 40, -1, true, T.SEED_CRYSTAL),
+  [T.WORLD_LOCK]: item(T.WORLD_LOCK, 'World Lock', R.EPIC, 50, 200, false, -1),
+});
+
+const isKnownItem = (id) => Object.prototype.hasOwnProperty.call(CATALOG, id);
+/** Items.get_info: unknown ids get a common, unbuyable, droppable, non-farmable default. */
+function getInfo(id) {
+  if (isKnownItem(id)) return CATALOG[id];
+  return { id, name: TILE_NAMES[id] ?? 'Unknown', rarity: R.COMMON, sell: 1, buy: -1, canDrop: true, farmable: false, seedDrop: -1 };
+}
+const rarity = (id) => getInfo(id).rarity;
+const sellPrice = (id) => getInfo(id).sell;
+/** Gem price in the Store, -1 if not sold. */
+const buyPrice = (id) => getInfo(id).buy;
+const canDrop = (id) => id >= 0 && getInfo(id).canDrop;
+const isFarmable = (id) => getInfo(id).farmable;
+const seedDropFor = (id) => getInfo(id).seedDrop;
+/** Items.store_stock: ids with buy >= 0, ascending. */
+const storeStock = () => Object.values(CATALOG).filter((i) => i.buy >= 0).map((i) => i.id).sort((a, b) => a - b);
+
+// ------------------------------------------------------------------ drop chances (items.gd)
+const blockDropChance = (id) => (isFarmable(id) ? 0.92 : 0.38);
+function seedDropChance(id) {
+  if (!isFarmable(id)) return 0.08;
+  const r = rarity(id);
+  return r === R.EPIC ? 0.55 : r === R.RARE ? 0.48 : 0.42;
+}
+function gemDropChance(id) {
+  if (!isFarmable(id)) return 0.12;
+  const r = rarity(id);
+  return r === R.EPIC ? 0.75 : r === R.RARE ? 0.65 : 0.55;
+}
+/** Inclusive [min, max] of Items.gem_drop_amount. */
+function gemDropRange(id) {
+  if (!isFarmable(id)) return [1, 1];
+  const r = rarity(id);
+  return r === R.EPIC ? [3, 6] : r === R.RARE ? [2, 4] : [1, 3];
+}
+
+// ------------------------------------------------------------------ rng helpers
+/** Godot RandomNumberGenerator.randf equivalent for our rng contract. */
+const randf = (rng) => rng();
+/** Godot randi_range: inclusive on both ends. */
+const randiRange = (rng, lo, hi) => lo + Math.min(hi - lo, Math.floor(rng() * (hi - lo + 1)));
+/** Items.gem_drop_amount: non-farmable is always 1 (no rng consumed). */
+function gemDropAmount(id, rng) {
+  if (!isFarmable(id)) return 1;
+  const [lo, hi] = gemDropRange(id);
+  return randiRange(rng, lo, hi);
+}
+
+/**
+ * World.break_tile rolls for breaking tile `id` (not AIR). Same roll order and short-circuits:
+ *   1. block: skipped for unripe seeds or !canDrop, else randf < blockDropChance
+ *   2. seed:  only if seedDropFor(id) >= 0, randf < seedDropChance
+ *   3. gems:  randf < gemDropChance, then gemDropAmount
+ * Returns { block: id|-1, seed: id|-1, gems: n, items: [{id, n}] } (items = what lands as drops).
+ */
+function rollBreak(id, rng) {
+  const out = { block: -1, seed: -1, gems: 0, items: [] };
+  if (id === T.AIR) return out;
+  const unripe = isSeed(id);
+  if (!unripe && canDrop(id) && randf(rng) < blockDropChance(id)) {
+    out.block = id;
+    out.items.push({ id, n: 1 });
+  }
+  const seedId = seedDropFor(id);
+  if (seedId >= 0 && randf(rng) < seedDropChance(id)) {
+    out.seed = seedId;
+    out.items.push({ id: seedId, n: 1 });
+  }
+  if (randf(rng) < gemDropChance(id)) out.gems = gemDropAmount(id, rng);
+  return out;
+}
+
+/**
+ * World.try_harvest on a mature crop: always the crop + one seed (Tiles.seed_for_crop), then
+ *   1. farmable only: randf < 0.25 → one extra seed
+ *   2. gems: randf < gemDropChance, then gemDropAmount
+ * Returns null if `id` is not a crop.
+ */
+const HARVEST_EXTRA_SEED_CHANCE = 0.25;
+function rollHarvest(id, rng) {
+  if (!isCrop(id)) return null;
+  const seedId = seedForCrop(id);
+  const out = { block: id, seed: seedId, gems: 0, items: [{ id, n: 1 }, { id: seedId, n: 1 }] };
+  if (isFarmable(id) && randf(rng) < HARVEST_EXTRA_SEED_CHANCE) out.items.push({ id: seedId, n: 1 });
+  if (randf(rng) < gemDropChance(id)) out.gems = gemDropAmount(id, rng);
+  return out;
+}
+
+/**
+ * World.place_tile checks (pure): can `id` be placed where the tile is `targetId`,
+ * with `belowId` underneath (pass null/undefined if the tile below is out of bounds)?
+ */
+function canPlace(id, targetId, belowId) {
+  if (targetId !== T.AIR) return false;
+  if (isUsableItem(id)) return false;
+  if (isSeed(id)) return belowId !== null && belowId !== undefined && isSoil(belowId);
+  if (isCrop(id)) return false;
+  return isPlaceable(id);
+}
+
+// ------------------------------------------------------------------ crafting (recipes.gd)
+const RECIPES = Object.freeze([
+  { id: 'plank', name: 'Plank', result: T.PLANK, resultCount: 1, ingredients: [{ id: T.WOOD, count: 2 }] },
+  { id: 'torch', name: 'Torch', result: T.TORCH, resultCount: 2, ingredients: [{ id: T.WOOD, count: 1 }] },
+  { id: 'weather_machine', name: 'Weather Machine', result: T.WEATHER_MACHINE, resultCount: 1,
+    ingredients: [{ id: T.PLANK, count: 4 }, { id: T.TORCH, count: 2 }] },
+  { id: 'fertilizer', name: 'Fertilizer', result: T.FERTILIZER, resultCount: 2,
+    ingredients: [{ id: T.CROP, count: 1 }, { id: T.DIRT, count: 1 }] },
+].map((r) => Object.freeze({ ...r, ingredients: Object.freeze(r.ingredients.map((i) => Object.freeze(i))) })));
+const recipeById = (rid) => RECIPES.find((r) => r.id === rid) || null;
+
+// ------------------------------------------------------------------ splicing (splicing.gd)
+const spliceKey = (a, b) => `${Math.min(a, b)},${Math.max(a, b)}`;
+const SPLICES = Object.freeze({
+  [spliceKey(T.SEED, T.SEED_AZURE)]: T.SEED_EMBER,
+  [spliceKey(T.SEED, T.SEED_EMBER)]: T.SEED_MOON,
+  [spliceKey(T.SEED_AZURE, T.SEED_EMBER)]: T.SEED_CRYSTAL,
+  [spliceKey(T.SEED, T.SEED_MOON)]: T.SEED_CRYSTAL,
+  [spliceKey(T.SEED_AZURE, T.SEED_MOON)]: T.SEED_CRYSTAL,
+  [spliceKey(T.SEED_EMBER, T.SEED_MOON)]: T.SEED_CRYSTAL,
+});
+/** Splicing.result_of: result seed id, or -1 (negative, same, non-seed or unknown pair). */
+function spliceResult(a, b) {
+  if (a < 0 || b < 0 || a === b || !isSeed(a) || !isSeed(b)) return -1;
+  return SPLICES[spliceKey(a, b)] ?? -1;
+}
+const ALL_SEED_IDS = Object.freeze([T.SEED, T.SEED_AZURE, T.SEED_EMBER, T.SEED_MOON, T.SEED_CRYSTAL]);
+
+// ------------------------------------------------------------------ quests (quests.gd)
+const QUESTS = Object.freeze([
+  { id: 'harvest_10', title: 'First Harvest', goal: 10, type: 'harvest_crops', rewardGems: 40, rewardItem: T.FERTILIZER, rewardCount: 3 },
+  { id: 'plant_5', title: 'Green Thumb', goal: 5, type: 'plant_seeds', rewardGems: 25, rewardItem: T.SEED_AZURE, rewardCount: 4 },
+  { id: 'splice_3', title: 'Seed Discovery', goal: 3, type: 'splice_seeds', rewardGems: 50, rewardItem: T.SEED_EMBER, rewardCount: 2 },
+].map((q) => Object.freeze(q)));
+const questById = (qid) => QUESTS.find((q) => q.id === qid) || null;
+
+// ------------------------------------------------------------------ inventory (inventory.gd)
+const MAX_STACK = 200;
+const HOTBAR_LEN = 9;
+const BASE_BACKPACK_SLOTS = 16;
+const STARTER_GEMS = 25;
+/** Starter kit as item counts (slot layout is a client concern). */
+const STARTER_ITEMS = Object.freeze({
+  [T.DIRT]: 64, [T.GRASS]: 32, [T.STONE]: 16, [T.SEED]: 16, [T.WOOD]: 32, [T.TORCH]: 8,
+  [T.SAND]: 24, [T.SEED_AZURE]: 8, [T.WORLD_LOCK]: 1,
+});
+/** Fresh starter inventory: { gems, items: {id: n} } (a new object each call). */
+const starterInventory = () => ({ gems: STARTER_GEMS, items: { ...STARTER_ITEMS } });
+
+/**
+ * Server inventory limits (store.invApply / inv_apply). The client splits a per-item total into
+ * MAX_STACK-sized slots and add_item() never refuses (it appends slots), so the server stores one
+ * total per item id and does NOT cap at MAX_STACK. These are only sanity ceilings against overflow
+ * and runaway credits; a credit that would exceed them fails the whole op (nothing is applied).
+ */
+const INV_ITEM_MAX = 99999;
+const INV_GEMS_MAX = 1000000000;
+
+/**
+ * DECISION (user, 2026-10-25) for server-inventory step 3 — not wired yet:
+ * online, when the World Lock owner breaks their own World Lock, it ALWAYS goes back to the owner's
+ * inventory (100%), instead of the offline break_tile roll (38% block-drop chance, see rollBreak).
+ * rollBreak itself stays a faithful port of the offline rule.
+ */
+const OWNER_BREAK_RETURNS_WORLD_LOCK = true;
+
+module.exports = {
+  TILE, TILE_NAMES, RARITY, WORLD_W, WORLD_H, FERTILIZER_FACTOR,
+  isSolid, isSoil, isPlaceable, isSeed, isCrop, isUsableItem, seedForCrop, cropForSeed, growSeconds, canPlace,
+  CATALOG, isKnownItem, getInfo, rarity, sellPrice, buyPrice, canDrop, isFarmable, seedDropFor, storeStock,
+  blockDropChance, seedDropChance, gemDropChance, gemDropRange, gemDropAmount, randf, randiRange,
+  rollBreak, rollHarvest, HARVEST_EXTRA_SEED_CHANCE,
+  RECIPES, recipeById, SPLICES, spliceKey, spliceResult, ALL_SEED_IDS, QUESTS, questById,
+  MAX_STACK, HOTBAR_LEN, BASE_BACKPACK_SLOTS, STARTER_GEMS, STARTER_ITEMS, starterInventory,
+  INV_ITEM_MAX, INV_GEMS_MAX, OWNER_BREAK_RETURNS_WORLD_LOCK,
+};

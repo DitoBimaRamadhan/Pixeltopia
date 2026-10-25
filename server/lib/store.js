@@ -22,6 +22,17 @@
  *   upsertPresence(worldName, instanceId, players), fetchPresence(worldNames[], {maxAgeMs, excludeInstance})
  *   deletePresence(worldName, instanceId), deleteStalePresence(maxAgeMs) -> count
  *   cleanupEvents({olderThanMs}) -> count   (only events already covered by a snapshot)
+ *
+ * Server-authoritative inventory (migrations v4–v6; used by index.js behind SERVER_INV=1):
+ *   invGet(userId) -> {ver, gems, items:{id:n}} | null
+ *   invEnsure(userId, {gems, items}, seededFrom) -> {created, state}   (creates once + ledger `seed:<userId>`, never overwrites)
+ *   invApply(opId, userId, {items:{id:delta}, gems:delta}, reason)   (opId must contain userId as a ':' segment)
+ *     -> {ok:true, dup, ver, gems, items} | {ok:false, error, ver?, gems?, items?}
+ *     all-or-nothing; a repeated opId is not applied again (returns current state, dup:true).
+ *   appendEventInv(worldName, ev, instanceId, {opId, userId, ops, reason})   (migration v5; SERVER_INV place)
+ *     -> {ok:true, dup, event|null, state} | {ok:false, error, state} | null (world missing)
+ *     ONE transaction: the inventory change and the world event append both happen or neither does.
+ *     Insufficient items => nothing appended. A repeated opId => nothing applied/appended (dup:true).
  */
 const fs = require('fs');
 const path = require('path');
@@ -41,6 +52,7 @@ function worldRow(w) {
     name: w.name, seed: w.seed >>> 0, grid: gridToB64(w.grid), spawn: w.spawn || { x: 32, y: 10 },
     lockOwnerId: w.lockOwnerId || null, lockOwnerName: w.lockOwnerName || null,
     access: Array.isArray(w.access) ? w.access : [],
+    plants: (w.plants && typeof w.plants === 'object') ? w.plants : {},
     createdBy: w.createdBy || null, createdAt: Number(w.createdAt) || Date.now(), updatedAt: Date.now(),
   };
 }
@@ -49,6 +61,7 @@ function rowToWorld(r) {
     name: r.name, seed: Number(r.seed) >>> 0, grid: b64ToGrid(r.grid), spawn: r.spawn || { x: 32, y: 10 },
     lockOwnerId: r.lockOwnerId || null, lockOwnerName: r.lockOwnerName || null,
     access: Array.isArray(r.access) ? r.access : [],
+    plants: (r.plants && typeof r.plants === 'object') ? r.plants : {},
     createdBy: r.createdBy || null, createdAt: Number(r.createdAt) || Date.now(),
   };
 }
@@ -81,6 +94,56 @@ function tradeFromRow(r) {
   };
 }
 
+// ---------------------------------------------------------------- inventory ops (shared)
+const rules = require('./rules');
+const MAX_OP_ID_LEN = 200;
+/**
+ * Validate an inventory op: {items: {itemId: delta}, gems: delta}. Deltas are non-zero safe integers,
+ * item ids must be known catalog items. Returns {ok, ops} with zero deltas dropped, or {ok:false, error}.
+ */
+function normalizeInvOps(raw) {
+  if (!raw || typeof raw !== 'object') return { ok: false, error: 'bad_ops' };
+  const items = {};
+  const src = raw.items == null ? {} : raw.items;
+  if (typeof src !== 'object' || Array.isArray(src)) return { ok: false, error: 'bad_ops' };
+  for (const [k, v] of Object.entries(src)) {
+    const id = Number(k); const d = Number(v);
+    if (!Number.isInteger(id) || !rules.isKnownItem(id)) return { ok: false, error: 'bad_item' };
+    if (!Number.isSafeInteger(d) || Math.abs(d) > rules.INV_ITEM_MAX) return { ok: false, error: 'bad_ops' };
+    if (d !== 0) items[id] = d;
+  }
+  const gems = raw.gems == null ? 0 : Number(raw.gems);
+  if (!Number.isSafeInteger(gems) || Math.abs(gems) > rules.INV_GEMS_MAX) return { ok: false, error: 'bad_ops' };
+  return { ok: true, ops: { items, gems } };
+}
+/**
+ * op_ids are global (inventory_ledger PK), so every op_id must carry the owning user id as one of its
+ * ':'-separated segments (e.g. `drop:<world>:<seq>:<userId>`): two users can never collide on an op_id.
+ * User ids are hex (see /auth/register), so they never contain ':'.
+ */
+function validOpId(opId, userId) {
+  return typeof opId === 'string' && opId.length > 0 && opId.length <= MAX_OP_ID_LEN
+    && typeof userId === 'string' && userId.length > 0 && opId.split(':').includes(userId);
+}
+/** Ledger op_id of the one-time wallet seed. */
+const seedOpId = (userId) => `seed:${userId}`;
+/** Sanitize a seed inventory for invEnsure (step 2 will decide what to trust from old profiles). */
+function normalizeSeed(seed) {
+  const items = {};
+  for (const [k, v] of Object.entries((seed && seed.items) || {})) {
+    const id = Number(k); const n = Number(v);
+    if (Number.isInteger(id) && rules.isKnownItem(id) && Number.isSafeInteger(n) && n > 0) items[id] = Math.min(n, rules.INV_ITEM_MAX);
+  }
+  const g = Number(seed && seed.gems);
+  return { items, gems: Number.isSafeInteger(g) && g > 0 ? Math.min(g, rules.INV_GEMS_MAX) : 0 };
+}
+function invStateFromJson(j) {
+  if (!j) return null;
+  const items = {};
+  for (const [k, v] of Object.entries(j.items || {})) if (Number(v) > 0) items[k] = Number(v);
+  return { ver: Number(j.ver) || 0, gems: Number(j.gems) || 0, items };
+}
+
 // ---------------------------------------------------------------- file store
 function createFileStore({ dataDir }) {
   const USERS = path.join(dataDir, 'users.json');
@@ -101,6 +164,11 @@ function createFileStore({ dataDir }) {
   const tradesMem = new Map();   // id -> trade
   const worldFile = (name) => path.join(WORLDS_DIR, `${name}.json`);
   const readWorld = (name) => readJson(worldFile(name), null);
+  const INVENTORY = path.join(dataDir, 'inventory.json');
+  // {wallets: {userId: {ver, gems, items, seededFrom, createdAt}}, ledger: {opId: {userId, reason, delta, createdAt}}}
+  // Single process + synchronous read-modify-write, so each op is trivially atomic.
+  const readInv = () => { const d = readJson(INVENTORY, {}); return { ...d, wallets: d.wallets || {}, ledger: d.ledger || {} }; };
+  const pubInv = (w) => (w ? invStateFromJson(w) : null);
   return {
     kind: 'file',
     async init() { fs.mkdirSync(WORLDS_DIR, { recursive: true }); },
@@ -165,6 +233,15 @@ function createFileStore({ dataDir }) {
     },
     async fetchEvents(worldName, afterSeq = 0, limit = 500) {
       return (events.get(worldName) || []).filter((e) => e.seq > afterSeq).slice(0, clampLimit(limit));
+    },
+    async appendEventInv(worldName, ev, instanceId, inv) {
+      if (!readWorld(worldName)) return null;
+      const r = await this.invApply(inv.opId, inv.userId, inv.ops, inv.reason); // synchronous inside: no interleaving
+      const state = invStateFromJson(r.ver === undefined ? null : r);
+      if (!r.ok) return { ok: false, error: r.error, state };
+      if (r.dup) return { ok: true, dup: true, event: null, state };
+      const event = await this.appendEvent(worldName, ev, instanceId);
+      return { ok: true, dup: false, event, state };
     },
     async saveSnapshotIfNewer(w, seq) {
       const r = readWorld(w.name);
@@ -261,6 +338,95 @@ function createFileStore({ dataDir }) {
       if (!t || t.version !== version || t.status !== 'open' || !t.ready[t.a] || !t.ready[t.b]) return null;
       Object.assign(t, { status: 'done', version: t.version + 1, updatedAt: Date.now() });
       return JSON.parse(JSON.stringify(t));
+    },
+    async invGet(userId) { return pubInv(readInv().wallets[userId]); },
+    async invEnsure(userId, seed, seededFrom = 'starter') {
+      const d = readInv();
+      if (d.wallets[userId]) return { created: false, state: pubInv(d.wallets[userId]) };
+      const s0 = normalizeSeed(seed);
+      d.wallets[userId] = { ver: 1, gems: s0.gems, items: s0.items, seededFrom: String(seededFrom || ''), createdAt: Date.now() };
+      d.ledger[seedOpId(userId)] = { userId, reason: `seed:${String(seededFrom || '')}`, delta: s0, createdAt: Date.now() };
+      writeJson(INVENTORY, d);
+      return { created: true, state: pubInv(d.wallets[userId]) };
+    },
+    async invApply(opId, userId, rawOps, reason = '') {
+      if (!validOpId(opId, userId)) return { ok: false, error: 'bad_op_id' };
+      const norm = normalizeInvOps(rawOps);
+      if (!norm.ok) return norm;
+      const d = readInv();
+      const w = d.wallets[userId];
+      if (!w) return { ok: false, error: 'no_wallet' };
+      if (d.ledger[opId]) return { ok: true, dup: true, ...pubInv(w) };
+      const { items, gems } = norm.ops;
+      const next = { ...w.items };
+      for (const id of Object.keys(items).sort((a, b) => a - b)) {
+        const n = (Number(next[id]) || 0) + items[id];
+        if (n < 0) return { ok: false, error: `insufficient_item:${id}`, ...pubInv(w) };
+        if (n > rules.INV_ITEM_MAX) return { ok: false, error: `cap_item:${id}`, ...pubInv(w) };
+        if (n === 0) delete next[id]; else next[id] = n;
+      }
+      const g = w.gems + gems;
+      if (g < 0) return { ok: false, error: 'insufficient_gems', ...pubInv(w) };
+      if (g > rules.INV_GEMS_MAX) return { ok: false, error: 'cap_gems', ...pubInv(w) };
+      d.wallets[userId] = { ...w, items: next, gems: g, ver: w.ver + 1 };
+      d.ledger[opId] = { userId, reason: String(reason || ''), delta: norm.ops, createdAt: Date.now() };
+      writeJson(INVENTORY, d);
+      return { ok: true, dup: false, ...pubInv(d.wallets[userId]) };
+    },
+    async invProgress(userId, reason) {
+      const { ledger } = readInv();
+      let n = 0;
+      for (const e of Object.values(ledger)) {
+        if (e.userId !== userId) continue;
+        if (e.reason === reason) n++; else if (e.reason === `refund_${reason}`) n--;
+      }
+      return Math.max(0, n);
+    },
+    async questClaimed(userId) {
+      return Object.keys((readInv().questClaims || {})[userId] || {});
+    },
+    async questClaim(userId, qid, { countReason, goal, opId, ops }) {
+      if (!validOpId(opId, userId)) return { ok: false, error: 'bad_op_id' };
+      const d0 = readInv();
+      if (!d0.wallets[userId]) return { ok: false, error: 'no_wallet' };
+      const state0 = pubInv(d0.wallets[userId]);
+      if (((d0.questClaims || {})[userId] || {})[qid]) return { ok: false, error: 'already_claimed', state: state0 };
+      const progress = await this.invProgress(userId, countReason);
+      if (progress < goal) return { ok: false, error: 'not_complete', progress, state: state0 };
+      const r = await this.invApply(opId, userId, ops, 'quest');
+      if (!r.ok) return { ok: false, error: r.error, state: invStateFromJson(r.ver === undefined ? null : r) };
+      const d = readInv();
+      d.questClaims = d.questClaims || {};
+      d.questClaims[userId] = { ...(d.questClaims[userId] || {}), [qid]: Date.now() };
+      writeJson(INVENTORY, d);
+      return { ok: true, progress, state: invStateFromJson(r) };
+    },
+    async tradeSettle(id, version, opsA, opsB) {
+      const t = tradesMem.get(String(id));
+      if (!t || t.version !== version || t.status !== 'open' || !t.ready[t.a] || !t.ready[t.b]) return { ok: false, error: 'conflict' };
+      const na = normalizeInvOps(opsA); const nb = normalizeInvOps(opsB);
+      if (!na.ok || !nb.ok) return { ok: false, error: 'bad_ops' };
+      // Dry run both sides first (single process, no awaits between check and write): all or nothing.
+      const d = readInv();
+      const check = (uid, ops) => {
+        const w = d.wallets[uid];
+        if (!w) return 'no_wallet';
+        for (const [k, v] of Object.entries(ops.items)) {
+          const n = (Number(w.items[k]) || 0) + v;
+          if (n < 0) return `insufficient_item:${k}`;
+          if (n > rules.INV_ITEM_MAX) return `cap_item:${k}`;
+        }
+        const g = w.gems + ops.gems;
+        if (g < 0) return 'insufficient_gems';
+        if (g > rules.INV_GEMS_MAX) return 'cap_gems';
+        return null;
+      };
+      const ea = check(t.a, na.ops); const eb = ea ? null : check(t.b, nb.ops);
+      if (ea || eb) return { ok: false, side: ea ? 'a' : 'b', error: ea || eb, invA: pubInv(d.wallets[t.a]), invB: pubInv(d.wallets[t.b]) };
+      const ra = await this.invApply(`trade:${t.a}:${id}`, t.a, na.ops, 'trade');
+      const rb = await this.invApply(`trade:${t.b}:${id}`, t.b, nb.ops, 'trade');
+      Object.assign(t, { status: 'done', version: t.version + 1, updatedAt: Date.now() });
+      return { ok: true, trade: JSON.parse(JSON.stringify(t)), invA: invStateFromJson(ra), invB: invStateFromJson(rb) };
     },
     async cleanupEvents({ olderThanMs = 10 * 60 * 1000 } = {}) {
       const cutoff = Date.now() - olderThanMs; let n = 0;
@@ -367,6 +533,176 @@ const MIGRATIONS = [
      instance_id TEXT NOT NULL,
      updated_at BIGINT NOT NULL
    );`,
+  // v4 — server-authoritative inventory. One total per (user, item) (stack/slot layout stays a client
+  // concern), a wallet row per user that also serializes that user's ops (row lock) and carries `ver`,
+  // an idempotency/audit ledger keyed by op_id, and one-time quest claims. inv_apply() is the only
+  // writer: all-or-nothing, idempotent on op_id. Additive + idempotent; nothing reads it yet.
+  `CREATE TABLE IF NOT EXISTS wallets (
+     user_id TEXT PRIMARY KEY,
+     gems BIGINT NOT NULL DEFAULT 0 CHECK (gems >= 0),
+     ver BIGINT NOT NULL DEFAULT 0,
+     seeded_from TEXT,
+     created_at BIGINT NOT NULL
+   );
+   CREATE TABLE IF NOT EXISTS inventory_items (
+     user_id TEXT NOT NULL,
+     item_id INT NOT NULL,
+     n INT NOT NULL CHECK (n >= 0),
+     PRIMARY KEY (user_id, item_id)
+   );
+   CREATE TABLE IF NOT EXISTS inventory_ledger (
+     op_id TEXT PRIMARY KEY,
+     user_id TEXT NOT NULL,
+     reason TEXT,
+     delta JSONB NOT NULL,
+     created_at BIGINT NOT NULL
+   );
+   CREATE INDEX IF NOT EXISTS inventory_ledger_user_idx ON inventory_ledger(user_id, created_at);
+   CREATE TABLE IF NOT EXISTS quest_claims (
+     user_id TEXT NOT NULL,
+     qid TEXT NOT NULL,
+     claimed_at BIGINT NOT NULL,
+     PRIMARY KEY (user_id, qid)
+   );
+   CREATE OR REPLACE FUNCTION inv_state(p_user TEXT) RETURNS JSONB LANGUAGE sql STABLE AS $fn$
+     SELECT jsonb_build_object('ver', w.ver, 'gems', w.gems, 'items',
+       COALESCE((SELECT jsonb_object_agg(i.item_id::text, i.n) FROM inventory_items i
+                 WHERE i.user_id = w.user_id AND i.n > 0), '{}'::jsonb))
+     FROM wallets w WHERE w.user_id = p_user
+   $fn$;
+   CREATE OR REPLACE FUNCTION inv_apply(p_op_id TEXT, p_user TEXT, p_ops JSONB, p_reason TEXT,
+       p_now BIGINT, p_item_max INT, p_gems_max BIGINT) RETURNS JSONB LANGUAGE plpgsql AS $fn$
+   DECLARE
+     v_gems BIGINT;
+     v_dgems BIGINT := COALESCE((p_ops->>'gems')::BIGINT, 0);
+     r RECORD;
+     v_n INT;
+   BEGIN
+     -- Lock the wallet first: serializes every op of this user (and fails fast without a wallet).
+     SELECT gems INTO v_gems FROM wallets WHERE user_id = p_user FOR UPDATE;
+     IF NOT FOUND THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'no_wallet');
+     END IF;
+     IF EXISTS (SELECT 1 FROM inventory_ledger WHERE op_id = p_op_id) THEN
+       RETURN jsonb_build_object('ok', true, 'dup', true) || inv_state(p_user);
+     END IF;
+     BEGIN  -- subtransaction: any RAISE below undoes every write of this op
+       INSERT INTO inventory_ledger(op_id, user_id, reason, delta, created_at)
+         VALUES (p_op_id, p_user, p_reason, p_ops, p_now);
+       FOR r IN SELECT key::INT AS item_id, value::TEXT::INT AS d
+                FROM jsonb_each(COALESCE(p_ops->'items', '{}'::jsonb)) ORDER BY 1 LOOP
+         IF r.d < 0 THEN
+           UPDATE inventory_items SET n = n + r.d
+             WHERE user_id = p_user AND item_id = r.item_id AND n + r.d >= 0;
+           IF NOT FOUND THEN RAISE EXCEPTION 'insufficient_item:%', r.item_id USING ERRCODE = 'P0001'; END IF;
+         ELSIF r.d > 0 THEN
+           INSERT INTO inventory_items(user_id, item_id, n) VALUES (p_user, r.item_id, r.d)
+             ON CONFLICT (user_id, item_id) DO UPDATE SET n = inventory_items.n + EXCLUDED.n
+             RETURNING n INTO v_n;
+           IF v_n > p_item_max THEN RAISE EXCEPTION 'cap_item:%', r.item_id USING ERRCODE = 'P0001'; END IF;
+         END IF;
+       END LOOP;
+       DELETE FROM inventory_items WHERE user_id = p_user AND n = 0;
+       IF v_gems + v_dgems < 0 THEN RAISE EXCEPTION 'insufficient_gems' USING ERRCODE = 'P0001'; END IF;
+       IF v_gems + v_dgems > p_gems_max THEN RAISE EXCEPTION 'cap_gems' USING ERRCODE = 'P0001'; END IF;
+       UPDATE wallets SET gems = gems + v_dgems, ver = ver + 1 WHERE user_id = p_user;
+     EXCEPTION WHEN raise_exception THEN
+       RETURN jsonb_build_object('ok', false, 'error', SQLERRM) || inv_state(p_user);
+     WHEN unique_violation THEN
+       -- same op_id committed concurrently by another session (after our EXISTS check)
+       RETURN jsonb_build_object('ok', true, 'dup', true) || inv_state(p_user);
+     END;
+     RETURN jsonb_build_object('ok', true, 'dup', false) || inv_state(p_user);
+   END
+   $fn$;`,
+  // v5 — append a world event and apply an inventory change in ONE transaction (SERVER_INV place cost).
+  // Lock order is always world row -> wallet row (appendEvent only locks the world, inv_apply only the
+  // wallet), so no deadlock. Additive + idempotent (CREATE OR REPLACE).
+  `CREATE OR REPLACE FUNCTION append_event_inv(
+     p_world TEXT, p_kind TEXT, p_actor_id TEXT, p_actor_name TEXT, p_to_id TEXT, p_data JSONB,
+     p_instance TEXT, p_now BIGINT, p_op_id TEXT, p_user TEXT, p_ops JSONB, p_reason TEXT,
+     p_item_max INT, p_gems_max BIGINT)
+   RETURNS JSONB LANGUAGE plpgsql AS $fn$
+   DECLARE
+     v_inv JSONB;
+     v_seq BIGINT;
+   BEGIN
+     PERFORM 1 FROM worlds WHERE name = p_world FOR UPDATE;
+     IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'no_world'); END IF;
+     v_inv := inv_apply(p_op_id, p_user, p_ops, p_reason, p_now, p_item_max, p_gems_max);
+     IF NOT COALESCE((v_inv->>'ok')::BOOLEAN, false) THEN
+       RETURN jsonb_build_object('ok', false, 'error', v_inv->>'error', 'inv', v_inv);
+     END IF;
+     IF COALESCE((v_inv->>'dup')::BOOLEAN, false) THEN
+       RETURN jsonb_build_object('ok', true, 'dup', true, 'inv', v_inv);
+     END IF;
+     UPDATE worlds SET head_seq = head_seq + 1 WHERE name = p_world RETURNING head_seq INTO v_seq;
+     INSERT INTO world_events(world, seq, kind, actor_id, actor_name, to_id, data, instance_id, created_at)
+       VALUES (p_world, v_seq, p_kind, p_actor_id, p_actor_name, p_to_id, COALESCE(p_data, '{}'::jsonb), p_instance, p_now);
+     RETURN jsonb_build_object('ok', true, 'dup', false, 'inv', v_inv, 'seq', v_seq);
+   END
+   $fn$;`,
+  // v6 — server inventory steps 4-6: plant ready times in world snapshots, atomic quest claims and trade
+  // settlement. Additive + idempotent (ADD COLUMN IF NOT EXISTS, CREATE OR REPLACE).
+  // Lock order everywhere: trade row -> wallets in user_id order (inv_apply re-locking an already locked
+  // wallet is a no-op), so no deadlocks with append_event_inv (world -> one wallet).
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS plants JSONB NOT NULL DEFAULT '{}'::jsonb;
+   CREATE OR REPLACE FUNCTION inv_progress(p_user TEXT, p_reason TEXT) RETURNS INT LANGUAGE sql STABLE AS $fn$
+     SELECT GREATEST(0,
+       (SELECT count(*) FROM inventory_ledger WHERE user_id = p_user AND reason = p_reason)
+       - (SELECT count(*) FROM inventory_ledger WHERE user_id = p_user AND reason = 'refund_' || p_reason))::INT
+   $fn$;
+   CREATE OR REPLACE FUNCTION quest_claim(p_user TEXT, p_qid TEXT, p_count_reason TEXT, p_goal INT, p_op_id TEXT,
+       p_ops JSONB, p_now BIGINT, p_item_max INT, p_gems_max BIGINT) RETURNS JSONB LANGUAGE plpgsql AS $fn$
+   DECLARE
+     v_n INT;
+     v_inv JSONB;
+   BEGIN
+     PERFORM 1 FROM wallets WHERE user_id = p_user FOR UPDATE;
+     IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'no_wallet'); END IF;
+     IF EXISTS (SELECT 1 FROM quest_claims WHERE user_id = p_user AND qid = p_qid) THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'already_claimed', 'inv', inv_state(p_user));
+     END IF;
+     v_n := inv_progress(p_user, p_count_reason);
+     IF v_n < p_goal THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'not_complete', 'progress', v_n, 'inv', inv_state(p_user));
+     END IF;
+     v_inv := inv_apply(p_op_id, p_user, p_ops, 'quest', p_now, p_item_max, p_gems_max);
+     IF NOT COALESCE((v_inv->>'ok')::BOOLEAN, false) THEN
+       RETURN jsonb_build_object('ok', false, 'error', v_inv->>'error', 'inv', v_inv);
+     END IF;
+     INSERT INTO quest_claims(user_id, qid, claimed_at) VALUES (p_user, p_qid, p_now) ON CONFLICT DO NOTHING;
+     RETURN jsonb_build_object('ok', true, 'progress', v_n, 'inv', v_inv);
+   END
+   $fn$;
+   CREATE OR REPLACE FUNCTION trade_settle(p_id TEXT, p_version INT, p_op_a TEXT, p_op_b TEXT, p_ops_a JSONB, p_ops_b JSONB,
+       p_now BIGINT, p_item_max INT, p_gems_max BIGINT) RETURNS JSONB LANGUAGE plpgsql AS $fn$
+   DECLARE
+     t trade_sessions%ROWTYPE;
+     ra JSONB;
+     rb JSONB;
+     v_err TEXT;
+   BEGIN
+     SELECT * INTO t FROM trade_sessions WHERE id = p_id FOR UPDATE;
+     IF NOT FOUND OR t.version <> p_version OR t.status <> 'open'
+        OR NOT COALESCE((t.ready->>t.a_id)::boolean, false) OR NOT COALESCE((t.ready->>t.b_id)::boolean, false) THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'conflict');
+     END IF;
+     PERFORM 1 FROM wallets WHERE user_id IN (t.a_id, t.b_id) ORDER BY user_id FOR UPDATE;
+     BEGIN  -- subtransaction: if either side fails, neither wallet nor the trade row changes
+       ra := inv_apply(p_op_a, t.a_id, p_ops_a, 'trade', p_now, p_item_max, p_gems_max);
+       IF NOT COALESCE((ra->>'ok')::BOOLEAN, false) THEN RAISE EXCEPTION 'a|%', ra->>'error' USING ERRCODE = 'P0001'; END IF;
+       rb := inv_apply(p_op_b, t.b_id, p_ops_b, 'trade', p_now, p_item_max, p_gems_max);
+       IF NOT COALESCE((rb->>'ok')::BOOLEAN, false) THEN RAISE EXCEPTION 'b|%', rb->>'error' USING ERRCODE = 'P0001'; END IF;
+       UPDATE trade_sessions SET status = 'done', version = version + 1, updated_at = p_now WHERE id = p_id RETURNING * INTO t;
+     EXCEPTION WHEN raise_exception THEN
+       v_err := SQLERRM;
+       RETURN jsonb_build_object('ok', false, 'side', split_part(v_err, '|', 1), 'error', split_part(v_err, '|', 2),
+         'invA', inv_state(t.a_id), 'invB', inv_state(t.b_id));
+     END;
+     RETURN jsonb_build_object('ok', true, 'trade', to_jsonb(t), 'invA', ra, 'invB', rb);
+   END
+   $fn$;`,
 ];
 
 /**
@@ -453,19 +789,19 @@ function createPgStore({ databaseUrl }) {
       const { rows } = await q('SELECT * FROM worlds');
       return rows.map((r) => rowToWorld({
         name: r.name, seed: r.seed, grid: r.grid, spawn: r.spawn, lockOwnerId: r.lock_owner_id,
-        lockOwnerName: r.lock_owner_name, access: r.access, createdBy: r.created_by, createdAt: r.created_at,
+        lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, createdBy: r.created_by, createdAt: r.created_at,
       }));
     },
     async saveWorld(w) {
       const r = worldRow(w);
       await q(
-        `INSERT INTO worlds(name, seed, grid, spawn, lock_owner_id, lock_owner_name, access, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        `INSERT INTO worlds(name, seed, grid, spawn, lock_owner_id, lock_owner_name, access, created_by, created_at, updated_at, plants)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (name) DO UPDATE SET grid=EXCLUDED.grid, spawn=EXCLUDED.spawn,
            lock_owner_id=EXCLUDED.lock_owner_id, lock_owner_name=EXCLUDED.lock_owner_name,
-           access=EXCLUDED.access, updated_at=EXCLUDED.updated_at`,
+           access=EXCLUDED.access, updated_at=EXCLUDED.updated_at, plants=EXCLUDED.plants`,
         [r.name, r.seed, r.grid, JSON.stringify(r.spawn), r.lockOwnerId, r.lockOwnerName,
-          JSON.stringify(r.access), r.createdBy, r.createdAt, r.updatedAt],
+          JSON.stringify(r.access), r.createdBy, r.createdAt, r.updatedAt, JSON.stringify(r.plants)],
       );
     },
     async getProfile(userId) {
@@ -499,7 +835,7 @@ function createPgStore({ databaseUrl }) {
       return {
         ...rowToWorld({
           name: r.name, seed: r.seed, grid: r.grid, spawn: r.spawn, lockOwnerId: r.lock_owner_id,
-          lockOwnerName: r.lock_owner_name, access: r.access, createdBy: r.created_by, createdAt: r.created_at,
+          lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, createdBy: r.created_by, createdAt: r.created_at,
         }),
         snapshotSeq: Number(r.snapshot_seq) || 0, headSeq: Number(r.head_seq) || 0,
       };
@@ -533,6 +869,26 @@ function createPgStore({ databaseUrl }) {
       return r ? toEvent({ seq: r.seq, kind: r.kind, actorId: r.actor_id, actorName: r.actor_name, toId: r.to_id,
         data: r.data, instanceId: r.instance_id, createdAt: r.created_at }) : null;
     },
+    /** World event + inventory change in one DB transaction (append_event_inv, migration v5). */
+    async appendEventInv(worldName, ev, instanceId, inv) {
+      if (!validOpId(inv.opId, inv.userId)) return { ok: false, error: 'bad_op_id', state: null };
+      const norm = normalizeInvOps(inv.ops);
+      if (!norm.ok) return { ok: false, error: norm.error, state: null };
+      const now = Date.now();
+      const data = eventPayload(ev);
+      const { rows } = await q('SELECT append_event_inv($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9,$10,$11::jsonb,$12,$13,$14) AS r',
+        [worldName, String(ev.kind), ev.actorId ?? null, ev.actorName ?? null, ev.toId ?? null, JSON.stringify(data),
+          instanceId || null, now, inv.opId, inv.userId, JSON.stringify(norm.ops), String(inv.reason || ''),
+          rules.INV_ITEM_MAX, rules.INV_GEMS_MAX]);
+      const r = rows[0].r || {};
+      if (r.error === 'no_world') return null;
+      const st = invStateFromJson(r.inv && r.inv.ver !== undefined ? r.inv : null);
+      if (!r.ok) return { ok: false, error: r.error, state: st };
+      if (r.dup) return { ok: true, dup: true, event: null, state: st };
+      const event = toEvent({ seq: r.seq, kind: String(ev.kind), actorId: ev.actorId ?? null, actorName: ev.actorName ?? null,
+        toId: ev.toId ?? null, data, instanceId: instanceId || null, createdAt: now });
+      return { ok: true, dup: false, event, state: st };
+    },
     async fetchEvents(worldName, afterSeq = 0, limit = 500) {
       const { rows } = await q(
         `SELECT seq, kind, actor_id, actor_name, to_id, data, instance_id, created_at FROM world_events
@@ -546,9 +902,10 @@ function createPgStore({ databaseUrl }) {
     async saveSnapshotIfNewer(w, seq) {
       const r = worldRow(w);
       const res = await q(
-        `UPDATE worlds SET grid=$2, spawn=$3, lock_owner_id=$4, lock_owner_name=$5, access=$6, updated_at=$7, snapshot_seq=$8
+        `UPDATE worlds SET grid=$2, spawn=$3, lock_owner_id=$4, lock_owner_name=$5, access=$6, updated_at=$7, snapshot_seq=$8, plants=$9
          WHERE name=$1 AND snapshot_seq < $8 AND $8 <= head_seq`,
-        [r.name, r.grid, JSON.stringify(r.spawn), r.lockOwnerId, r.lockOwnerName, JSON.stringify(r.access), r.updatedAt, Number(seq) || 0],
+        [r.name, r.grid, JSON.stringify(r.spawn), r.lockOwnerId, r.lockOwnerName, JSON.stringify(r.access), r.updatedAt, Number(seq) || 0,
+          JSON.stringify(r.plants)],
       );
       return res.rowCount === 1;
     },
@@ -692,6 +1049,80 @@ function createPgStore({ databaseUrl }) {
       );
       return tradeFromRow(rows[0]);
     },
+    // ------------------------------------------------ server-authoritative inventory (v4)
+    async invGet(userId) {
+      const { rows } = await q('SELECT inv_state($1) AS s', [userId]);
+      return invStateFromJson(rows[0] && rows[0].s);
+    },
+    /** Create the wallet + items + `seed:<userId>` ledger row once (single statement); an existing wallet is never touched. */
+    async invEnsure(userId, seed, seededFrom = 'starter') {
+      const s0 = normalizeSeed(seed);
+      const { rows } = await q(
+        `WITH w AS (
+           INSERT INTO wallets(user_id, gems, ver, seeded_from, created_at) VALUES ($1, $2, 1, $3, $4)
+           ON CONFLICT (user_id) DO NOTHING RETURNING user_id),
+         i AS (
+           INSERT INTO inventory_items(user_id, item_id, n)
+           SELECT w.user_id, e.key::INT, e.value::TEXT::INT FROM w, jsonb_each($5::jsonb) e
+           RETURNING 1),
+         l AS (
+           INSERT INTO inventory_ledger(op_id, user_id, reason, delta, created_at)
+           SELECT $6, w.user_id, 'seed:' || $3, $7::jsonb, $4 FROM w
+           ON CONFLICT (op_id) DO NOTHING RETURNING 1)
+         SELECT (SELECT count(*) FROM w) AS created, (SELECT count(*) FROM i) AS n_items, (SELECT count(*) FROM l) AS n_ledger`,
+        [userId, s0.gems, String(seededFrom || ''), Date.now(), JSON.stringify(s0.items), seedOpId(userId), JSON.stringify(s0)],
+      );
+      return { created: Number(rows[0].created) === 1, state: await this.invGet(userId) };
+    },
+    /** All-or-nothing, idempotent inventory change; see inv_apply() in migration v4. */
+    async invApply(opId, userId, rawOps, reason = '') {
+      if (!validOpId(opId, userId)) return { ok: false, error: 'bad_op_id' };
+      const norm = normalizeInvOps(rawOps);
+      if (!norm.ok) return norm;
+      const { rows } = await q('SELECT inv_apply($1, $2, $3::jsonb, $4, $5, $6, $7) AS r',
+        [opId, userId, JSON.stringify(norm.ops), String(reason || ''), Date.now(), rules.INV_ITEM_MAX, rules.INV_GEMS_MAX]);
+      const r = rows[0].r || {};
+      const st = invStateFromJson(r.ver === undefined ? null : r);
+      return { ok: !!r.ok, ...(r.ok ? { dup: !!r.dup } : { error: r.error }), ...(st || {}) };
+    },
+    /** Quest progress (ledger rows of `reason` minus their refunds) since the wallet was created. */
+    async invProgress(userId, reason) {
+      const { rows } = await q('SELECT inv_progress($1, $2) AS n', [userId, String(reason)]);
+      return Number(rows[0].n) || 0;
+    },
+    async questClaimed(userId) {
+      const { rows } = await q('SELECT qid FROM quest_claims WHERE user_id = $1', [userId]);
+      return rows.map((r) => r.qid);
+    },
+    /** One-time quest reward: progress check + claim row + credit in one transaction (quest_claim, v6). */
+    async questClaim(userId, qid, { countReason, goal, opId, ops }) {
+      if (!validOpId(opId, userId)) return { ok: false, error: 'bad_op_id' };
+      const norm = normalizeInvOps(ops);
+      if (!norm.ok) return norm;
+      const { rows } = await q('SELECT quest_claim($1,$2,$3,$4,$5,$6::jsonb,$7,$8,$9) AS r',
+        [userId, String(qid), String(countReason), Number(goal) | 0, opId, JSON.stringify(norm.ops), Date.now(), rules.INV_ITEM_MAX, rules.INV_GEMS_MAX]);
+      const r = rows[0].r || {};
+      const st = invStateFromJson(r.inv && r.inv.ver !== undefined ? r.inv : null);
+      return { ok: !!r.ok, ...(r.ok ? {} : { error: r.error }), progress: r.progress == null ? undefined : Number(r.progress), state: st };
+    },
+    /**
+     * Settle an open, both-ready trade atomically (trade_settle, v6): both wallet deltas + status 'done', or
+     * nothing. opsA/opsB = {items, gems} deltas; op ids trade:<user>:<tradeId>.
+     * Returns {ok, trade, invA, invB} or {ok:false, error, side?, invA?, invB?} (error 'conflict' = trade moved on).
+     */
+    async tradeSettle(id, version, opsA, opsB) {
+      const t = await this.tradeGet(id);
+      if (!t) return { ok: false, error: 'conflict' };
+      const na = normalizeInvOps(opsA); const nb = normalizeInvOps(opsB);
+      if (!na.ok || !nb.ok) return { ok: false, error: 'bad_ops' };
+      const { rows } = await q('SELECT trade_settle($1,$2,$3,$4,$5::jsonb,$6::jsonb,$7,$8,$9) AS r',
+        [String(id), version, `trade:${t.a}:${id}`, `trade:${t.b}:${id}`, JSON.stringify(na.ops), JSON.stringify(nb.ops),
+          Date.now(), rules.INV_ITEM_MAX, rules.INV_GEMS_MAX]);
+      const r = rows[0].r || {};
+      const st = (j) => invStateFromJson(j && j.ver !== undefined ? j : null);
+      if (!r.ok) return { ok: false, error: r.error, side: r.side || undefined, invA: st(r.invA), invB: st(r.invB) };
+      return { ok: true, trade: tradeFromRow(r.trade), invA: st(r.invA), invB: st(r.invB) };
+    },
     /** Drop events already folded into a snapshot and older than `olderThanMs` (late joiners replay from snapshot). */
     async cleanupEvents({ olderThanMs = 10 * 60 * 1000 } = {}) {
       const r = await q(
@@ -709,4 +1140,4 @@ function createStore({ dataDir, databaseUrl = process.env.DATABASE_URL } = {}) {
   return createFileStore({ dataDir });
 }
 
-module.exports = { createStore, gridToB64, b64ToGrid };
+module.exports = { createStore, gridToB64, b64ToGrid, MIGRATIONS };

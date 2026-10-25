@@ -44,7 +44,7 @@ test('pg sync store', { skip }, async (t) => {
 
   await t.test('migration v2 applied once', async () => {
     const { rows } = await raw('SELECT version FROM schema_migrations ORDER BY version');
-    assert.deepEqual(rows.map((r) => Number(r.version)), [1, 2, 3]);
+    assert.deepEqual(rows.map((r) => Number(r.version)), [1, 2, 3, 4, 5, 6]);
     const cols = await raw(`SELECT table_name, column_name FROM information_schema.columns
       WHERE (table_name='worlds' AND column_name IN ('head_seq','snapshot_seq')) OR (table_name='profiles' AND column_name='rev')`);
     assert.equal(cols.rows.length, 3);

@@ -14,16 +14,20 @@
  * diff corrects our players' screens.
  */
 const crypto = require('crypto');
-const { applyEvent, normalizeEvent, generateGrid, W } = require('./world_manager');
+const { applyEvent, normalizeEvent, generateGrid, clonePlants, W } = require('./world_manager');
+const rules = require('./rules');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 function createWorldSync({
   store, worlds, instanceId, broadcastWorld, deliverToPlayer, localPlayers, kickPlayer, log = console,
   pollMs = 150, presenceFastMs = 300, presenceSlowMs = 2000, presenceMaxAgeMs = 4000,
-  sessionCheckMs = 1000, unloadIdleMs = 60000,
+  sessionCheckMs = 1000, unloadIdleMs = 60000, onEventApplied = null,
 }) {
   let eidCounter = 0;
+  // eids feed inventory op_ids (place:<user>:<eid>), so they must never repeat across restarts even when
+  // INSTANCE_ID is fixed: add a per-process random nonce.
+  const bootNonce = crypto.randomBytes(3).toString('hex');
   let stopped = false;
   let lastSessionCheck = 0;
   const loading = new Map();
@@ -32,7 +36,7 @@ function createWorldSync({
 
   const cloneBase = (src) => ({
     grid: Int32Array.from(src.grid), lockOwnerId: src.lockOwnerId || null, lockOwnerName: src.lockOwnerName || null,
-    access: (src.access || []).map((a) => ({ id: a.id, username: a.username })), dirty: false,
+    access: (src.access || []).map((a) => ({ id: a.id, username: a.username })), plants: clonePlants(src.plants), dirty: false,
   });
   function attach(world, row) {
     world.base = cloneBase(row);
@@ -52,6 +56,7 @@ function createWorldSync({
     world.lockOwnerId = world.base.lockOwnerId;
     world.lockOwnerName = world.base.lockOwnerName;
     world.access = world.base.access.map((a) => ({ id: a.id, username: a.username }));
+    world.plants = clonePlants(world.base.plants);
     for (const p of world.pending) applyEvent(world, p.ev); // a pending edit that no longer fits is simply skipped
   }
   const visibleKey = (w) => `${w.lockOwnerId}|${w.lockOwnerName}`;
@@ -65,6 +70,9 @@ function createWorldSync({
         lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
       };
       if (meta && meta.broke !== undefined) msg.broke = meta.broke;
+      if (meta && meta.harvest !== undefined) msg.harvest = meta.harvest;
+      const plant = rules.isSeed(world.grid[i]) && world.plants ? world.plants[String(i)] : null;
+      if (plant) msg.readyIn = Math.round(plant.r - Date.now());
       broadcastWorld(world, msg);
       sent++;
     }
@@ -95,8 +103,13 @@ function createWorldSync({
         if (!mine && ev.toId && ev.payload) deliverToPlayer(ev.toId, ev.payload);
         continue;
       }
+      const prevLockOwnerId = world.base.lockOwnerId || null;
       const r = applyEvent(world.base, ev);
       stateChanged = true;
+      if (onEventApplied && (ev.kind === 'punch' || ev.kind === 'place' || ev.kind === 'fertilize')) {
+        // Confirmed (logged) outcome, identical on every instance: inventory refunds/credits hang off this.
+        try { onEventApplied(world, ev, r, { prevLockOwnerId, mine }); } catch (e) { log.error('[sync] onEventApplied failed:', e.message); }
+      }
       if (mine && ev.eid) {
         const i = world.pending.findIndex((p) => p.eid === ev.eid);
         if (i >= 0) world.pending.splice(i, 1);
@@ -108,7 +121,12 @@ function createWorldSync({
       if (!r.error && !r.noop && (ev.kind === 'punch' || ev.kind === 'place')) {
         const meta = { by: ev.actorId, action: ev.kind };
         if (ev.kind === 'punch') meta.broke = r.broke;
+        if (ev.kind === 'punch' && r.harvest !== undefined) meta.harvest = r.harvest;
         touched.set(r.y * W + r.x, meta);
+      }
+      if (!mine && !r.error && ev.kind === 'fertilize') {
+        // Grid unchanged, so emitDiff would not show it: tell our players the new ready time.
+        broadcastWorld(world, { t: 'plant', x: r.x, y: r.y, readyIn: Math.round(r.readyAt - Date.now()), boosted: true, by: ev.actorId });
       }
     }
     if (stateChanged) {
@@ -193,13 +211,26 @@ function createWorldSync({
     try { return await p; } finally { loading.delete(name); }
   }
 
-  function appendLogged(world, ev, onFail) {
+  /**
+   * Append in order (per world). With `inv` the inventory change is applied in the SAME transaction
+   * (store.appendEventInv): if it is refused (e.g. not enough items) nothing is appended and
+   * onFail(error) runs; on success onInv(state) gets the new wallet state.
+   */
+  function appendLogged(world, ev, onFail, inv = null, onInv = null) {
     world.appendChain = world.appendChain.then(async () => {
       let res = null;
-      try { res = await store.appendEvent(world.name, ev, instanceId); } catch (e) {
+      let failure = null;
+      try {
+        if (inv) {
+          const r = await store.appendEventInv(world.name, ev, instanceId, inv);
+          if (r && r.ok) { res = r; if (onInv && r.state) onInv(r.state); } else if (r) { failure = r.error || 'inv_failed'; if (onInv && r.state) onInv(r.state); }
+        } else {
+          res = await store.appendEvent(world.name, ev, instanceId);
+        }
+      } catch (e) {
         log.error(`[sync] append ${ev.kind} to ${world.name} failed:`, e.message);
       }
-      if (!res) { stats.appendFailures++; if (onFail) onFail(); }
+      if (!res) { if (!failure) stats.appendFailures++; if (onFail) onFail(failure); }
     });
     return world.appendChain;
   }
@@ -208,15 +239,24 @@ function createWorldSync({
    * Validate + apply an edit (punch/place/access) on the visible world, echo it locally right away
    * and append it to the log in the background. Returns the reducer result (same shape as before).
    */
-  function submit(world, rawEv) {
-    const ev = normalizeEvent(rawEv);
+  /**
+   * opts.inv = {userId, ops, reason}: pay for this edit from the user's server inventory, atomically with
+   * the log append (op_id `<reason>:<userId>:<eid>`, recorded in the event as invOp). opts.onInv(state)
+   * receives the wallet state after the attempt; opts.failMessage(error) picks the error text sent to the
+   * actor when the append/payment is refused (default: "server busy"). opts.onFail(error) runs when the
+   * edit was not logged at all; opts.invOp = '<kind>:<userId>' marks an edit paid outside the DB (guests).
+   */
+  function submit(world, rawEv, opts = {}) {
+    const eid = `${instanceId}:${bootNonce}:${++eidCounter}`;
+    const inv = opts.inv ? { ...opts.inv, opId: `${opts.inv.reason || 'op'}:${opts.inv.userId}:${eid}` } : null;
+    const withTs = rawEv.ts ? rawEv : { ...rawEv, ts: Date.now() }; // server time: plant ready times / harvests
+    const ev = normalizeEvent(inv ? { ...withTs, invOp: inv.opId } : (opts.invOp ? { ...withTs, invOp: `${opts.invOp}:${eid}` } : withTs));
     const r = applyEvent(world, ev);
     if (r.error || r.noop) return r;
-    const eid = `${instanceId}:${++eidCounter}`;
     const logged = { ...ev, eid };
     world.pending.push({ eid, ev: logged });
     world.lastActive = Date.now();
-    appendLogged(world, logged, () => {
+    appendLogged(world, logged, (failure) => {
       const i = world.pending.findIndex((p) => p.eid === eid);
       if (i < 0) return;
       const beforeGrid = Int32Array.from(world.grid);
@@ -224,8 +264,10 @@ function createWorldSync({
       world.pending.splice(i, 1);
       recompute(world);
       emitDiff(world, beforeGrid, beforeLock, new Map());
-      if (ev.actorId) deliverToPlayer(ev.actorId, { t: 'error', error: 'Server sibuk — perubahan dibatalkan, coba lagi.' });
-    });
+      if (opts.onFail) { try { opts.onFail(failure); } catch (e) { log.error('[sync] onFail failed:', e.message); } }
+      const msg = (failure && opts.failMessage && opts.failMessage(failure)) || 'Server sibuk — perubahan dibatalkan, coba lagi.';
+      if (ev.actorId) deliverToPlayer(ev.actorId, { t: 'error', error: msg });
+    }, inv, opts.onInv || null);
     return r;
   }
   /** Chat line for players of this world on other instances (local players get it directly). */

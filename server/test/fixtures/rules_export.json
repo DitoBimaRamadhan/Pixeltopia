@@ -1,0 +1,1143 @@
+{
+  "break_mc": {
+    "1": {
+      "-1|-1|0|0": 434,
+      "-1|-1|1|0": 173,
+      "-1|-1|2|0": 179,
+      "-1|-1|3|0": 164,
+      "-1|4|0|1": 296,
+      "-1|4|1|1": 144,
+      "-1|4|2|1": 122,
+      "-1|4|3|1": 129,
+      "1|-1|0|1": 4921,
+      "1|-1|1|1": 1854,
+      "1|-1|2|1": 1879,
+      "1|-1|3|1": 1913,
+      "1|4|0|2": 3489,
+      "1|4|1|2": 1408,
+      "1|4|2|2": 1479,
+      "1|4|3|2": 1416
+    },
+    "10": {
+      "-1|-1|0|0": 5243,
+      "-1|-1|1|0": 2114,
+      "-1|-1|2|0": 2172,
+      "-1|-1|3|0": 2132,
+      "-1|10|0|1": 3728,
+      "-1|10|1|1": 1521,
+      "-1|10|2|1": 1548,
+      "-1|10|3|1": 1542
+    },
+    "12": {
+      "-1|-1|0|0": 10834,
+      "-1|-1|1|0": 1467,
+      "12|-1|0|1": 6803,
+      "12|-1|1|1": 896
+    },
+    "13": {
+      "-1|-1|0|0": 10950,
+      "-1|-1|1|0": 1440,
+      "13|-1|0|1": 6717,
+      "13|-1|1|1": 893
+    },
+    "14": {
+      "-1|-1|0|0": 3662,
+      "-1|-1|2|0": 2302,
+      "-1|-1|3|0": 2277,
+      "-1|-1|4|0": 2242,
+      "-1|14|0|1": 3329,
+      "-1|14|2|1": 2073,
+      "-1|14|3|1": 2134,
+      "-1|14|4|1": 1981
+    },
+    "16": {
+      "-1|-1|0|0": 3747,
+      "-1|-1|2|0": 2269,
+      "-1|-1|3|0": 2311,
+      "-1|-1|4|0": 2257,
+      "-1|16|0|1": 3289,
+      "-1|16|2|1": 2003,
+      "-1|16|3|1": 2059,
+      "-1|16|4|1": 2065
+    },
+    "18": {
+      "-1|-1|0|0": 2261,
+      "-1|-1|3|0": 1654,
+      "-1|-1|4|0": 1576,
+      "-1|-1|5|0": 1780,
+      "-1|-1|6|0": 1696,
+      "-1|18|0|1": 2705,
+      "-1|18|3|1": 2055,
+      "-1|18|4|1": 2180,
+      "-1|18|5|1": 2058,
+      "-1|18|6|1": 2035
+    },
+    "2": {
+      "-1|-1|0|0": 402,
+      "-1|-1|1|0": 173,
+      "-1|-1|2|0": 176,
+      "-1|-1|3|0": 171,
+      "-1|4|0|1": 316,
+      "-1|4|1|1": 104,
+      "-1|4|2|1": 115,
+      "-1|4|3|1": 113,
+      "2|-1|0|1": 4739,
+      "2|-1|1|1": 1915,
+      "2|-1|2|1": 1989,
+      "2|-1|3|1": 1984,
+      "2|4|0|2": 3505,
+      "2|4|1|2": 1467,
+      "2|4|2|2": 1390,
+      "2|4|3|2": 1441
+    },
+    "20": {
+      "-1|-1|0|0": 10921,
+      "-1|-1|1|0": 1452,
+      "20|-1|0|1": 6703,
+      "20|-1|1|1": 924
+    },
+    "21": {
+      "-1|-1|0|0": 10810,
+      "-1|-1|1|0": 1510,
+      "21|-1|0|1": 6750,
+      "21|-1|1|1": 930
+    },
+    "22": {
+      "-1|-1|0|0": 10934,
+      "-1|-1|1|0": 1510,
+      "22|-1|0|1": 6649,
+      "22|-1|1|1": 907
+    },
+    "3": {
+      "-1|-1|0|0": 10849,
+      "-1|-1|1|0": 1516,
+      "3|-1|0|1": 6722,
+      "3|-1|1|1": 913
+    },
+    "4": {
+      "-1|-1|0|0": 5273,
+      "-1|-1|1|0": 2126,
+      "-1|-1|2|0": 2155,
+      "-1|-1|3|0": 2073,
+      "-1|4|0|1": 3782,
+      "-1|4|1|1": 1540,
+      "-1|4|2|1": 1467,
+      "-1|4|3|1": 1584
+    },
+    "6": {
+      "-1|-1|0|0": 10918,
+      "-1|-1|1|0": 1524,
+      "6|-1|0|1": 6594,
+      "6|-1|1|1": 964
+    },
+    "7": {
+      "-1|-1|0|0": 11015,
+      "-1|-1|1|0": 1526,
+      "7|-1|0|1": 6574,
+      "7|-1|1|1": 885
+    },
+    "8": {
+      "-1|-1|0|0": 10871,
+      "-1|-1|1|0": 1494,
+      "8|-1|0|1": 6759,
+      "8|-1|1|1": 876
+    },
+    "9": {
+      "-1|-1|0|0": 388,
+      "-1|-1|1|0": 162,
+      "-1|-1|2|0": 186,
+      "-1|-1|3|0": 188,
+      "-1|4|0|1": 293,
+      "-1|4|1|1": 113,
+      "-1|4|2|1": 116,
+      "-1|4|3|1": 137,
+      "9|-1|0|1": 4792,
+      "9|-1|1|1": 2047,
+      "9|-1|2|1": 1982,
+      "9|-1|3|1": 1937,
+      "9|4|0|2": 3429,
+      "9|4|1|2": 1448,
+      "9|4|2|2": 1389,
+      "9|4|3|2": 1393
+    }
+  },
+  "gem_amount_samples": {
+    "0": [
+      1
+    ],
+    "1": [
+      1,
+      2,
+      3
+    ],
+    "10": [
+      1,
+      2,
+      3
+    ],
+    "11": [
+      2,
+      3,
+      4
+    ],
+    "12": [
+      1
+    ],
+    "13": [
+      1
+    ],
+    "14": [
+      2,
+      3,
+      4
+    ],
+    "15": [
+      2,
+      3,
+      4
+    ],
+    "16": [
+      2,
+      3,
+      4
+    ],
+    "17": [
+      2,
+      3,
+      4
+    ],
+    "18": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "19": [
+      3,
+      4,
+      5,
+      6
+    ],
+    "2": [
+      1,
+      2,
+      3
+    ],
+    "20": [
+      1
+    ],
+    "21": [
+      1
+    ],
+    "22": [
+      1
+    ],
+    "3": [
+      1
+    ],
+    "4": [
+      1,
+      2,
+      3
+    ],
+    "5": [
+      1,
+      2,
+      3
+    ],
+    "6": [
+      1
+    ],
+    "7": [
+      1
+    ],
+    "8": [
+      1
+    ],
+    "9": [
+      1,
+      2,
+      3
+    ]
+  },
+  "godot": "4.3-stable (official)",
+  "harvest_mc": {
+    "11": {
+      "11|10|0|2": 5302,
+      "11|10|0|3": 1722,
+      "11|10|2|2": 3285,
+      "11|10|2|3": 1136,
+      "11|10|3|2": 3211,
+      "11|10|3|3": 1049,
+      "11|10|4|2": 3137,
+      "11|10|4|3": 1158
+    },
+    "15": {
+      "15|14|0|2": 5208,
+      "15|14|0|3": 1715,
+      "15|14|2|2": 3213,
+      "15|14|2|3": 1121,
+      "15|14|3|2": 3320,
+      "15|14|3|3": 1077,
+      "15|14|4|2": 3240,
+      "15|14|4|3": 1106
+    },
+    "17": {
+      "17|16|0|2": 5320,
+      "17|16|0|3": 1673,
+      "17|16|2|2": 3233,
+      "17|16|2|3": 1118,
+      "17|16|3|2": 3291,
+      "17|16|3|3": 1086,
+      "17|16|4|2": 3211,
+      "17|16|4|3": 1068
+    },
+    "19": {
+      "19|18|0|2": 3789,
+      "19|18|0|3": 1240,
+      "19|18|3|2": 2769,
+      "19|18|3|3": 942,
+      "19|18|4|2": 2838,
+      "19|18|4|3": 937,
+      "19|18|5|2": 2831,
+      "19|18|5|3": 945,
+      "19|18|6|2": 2811,
+      "19|18|6|3": 898
+    },
+    "5": {
+      "5|4|0|2": 6827,
+      "5|4|0|3": 2212,
+      "5|4|1|2": 2710,
+      "5|4|1|3": 951,
+      "5|4|2|2": 2725,
+      "5|4|2|3": 875,
+      "5|4|3|2": 2726,
+      "5|4|3|3": 974
+    }
+  },
+  "inventory": {
+    "BASE_BACKPACK_SLOTS": 16,
+    "HOTBAR_LEN": 9,
+    "MAX_STACK": 200,
+    "counts": [
+      0,
+      64,
+      32,
+      16,
+      16,
+      32,
+      8,
+      24,
+      8,
+      1,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "gems": 25,
+    "selected": 0,
+    "slots": [
+      -1,
+      1,
+      2,
+      3,
+      4,
+      6,
+      7,
+      9,
+      10,
+      20,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1,
+      -1
+    ]
+  },
+  "items": {
+    "-1": {
+      "block_drop_chance": 0.38,
+      "buy": -1,
+      "can_drop": false,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": false,
+      "name": "Unknown",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 1
+    },
+    "0": {
+      "block_drop_chance": 0.38,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": false,
+      "name": "Air",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 1
+    },
+    "1": {
+      "block_drop_chance": 0.92,
+      "buy": 2,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Dirt",
+      "rarity": 0,
+      "seed_drop": 4,
+      "seed_drop_chance": 0.42,
+      "sell": 1
+    },
+    "10": {
+      "block_drop_chance": 0.92,
+      "buy": 14,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Azureoot Seed",
+      "rarity": 1,
+      "seed_drop": 10,
+      "seed_drop_chance": 0.42,
+      "sell": 5
+    },
+    "11": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.65,
+      "in_catalog": true,
+      "name": "Azureoot",
+      "rarity": 2,
+      "seed_drop": 10,
+      "seed_drop_chance": 0.48,
+      "sell": 12
+    },
+    "12": {
+      "block_drop_chance": 0.38,
+      "buy": 120,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Weather Machine",
+      "rarity": 3,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 40
+    },
+    "13": {
+      "block_drop_chance": 0.38,
+      "buy": 15,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Fertilizer",
+      "rarity": 1,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 4
+    },
+    "14": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.65,
+      "in_catalog": true,
+      "name": "Emberfruit Seed",
+      "rarity": 2,
+      "seed_drop": 14,
+      "seed_drop_chance": 0.48,
+      "sell": 10
+    },
+    "15": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.65,
+      "in_catalog": true,
+      "name": "Emberfruit",
+      "rarity": 2,
+      "seed_drop": 14,
+      "seed_drop_chance": 0.48,
+      "sell": 18
+    },
+    "16": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.65,
+      "in_catalog": true,
+      "name": "Moonpetal Seed",
+      "rarity": 2,
+      "seed_drop": 16,
+      "seed_drop_chance": 0.48,
+      "sell": 14
+    },
+    "17": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.65,
+      "in_catalog": true,
+      "name": "Moonpetal",
+      "rarity": 2,
+      "seed_drop": 16,
+      "seed_drop_chance": 0.48,
+      "sell": 22
+    },
+    "18": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.75,
+      "in_catalog": true,
+      "name": "Crystalroot Seed",
+      "rarity": 3,
+      "seed_drop": 18,
+      "seed_drop_chance": 0.55,
+      "sell": 28
+    },
+    "19": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.75,
+      "in_catalog": true,
+      "name": "Crystalroot",
+      "rarity": 3,
+      "seed_drop": 18,
+      "seed_drop_chance": 0.55,
+      "sell": 40
+    },
+    "2": {
+      "block_drop_chance": 0.92,
+      "buy": 3,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Grass",
+      "rarity": 0,
+      "seed_drop": 4,
+      "seed_drop_chance": 0.42,
+      "sell": 1
+    },
+    "20": {
+      "block_drop_chance": 0.38,
+      "buy": 200,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "World Lock",
+      "rarity": 3,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 50
+    },
+    "21": {
+      "block_drop_chance": 0.38,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": false,
+      "name": "Unknown",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 1
+    },
+    "22": {
+      "block_drop_chance": 0.38,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": false,
+      "name": "Unknown",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 1
+    },
+    "3": {
+      "block_drop_chance": 0.38,
+      "buy": 4,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Stone",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 2
+    },
+    "4": {
+      "block_drop_chance": 0.92,
+      "buy": 8,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Groveberry Seed",
+      "rarity": 0,
+      "seed_drop": 4,
+      "seed_drop_chance": 0.42,
+      "sell": 3
+    },
+    "5": {
+      "block_drop_chance": 0.92,
+      "buy": -1,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Groveberry",
+      "rarity": 1,
+      "seed_drop": 4,
+      "seed_drop_chance": 0.42,
+      "sell": 6
+    },
+    "6": {
+      "block_drop_chance": 0.38,
+      "buy": 5,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Wood",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 2
+    },
+    "7": {
+      "block_drop_chance": 0.38,
+      "buy": 10,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Torch",
+      "rarity": 0,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 3
+    },
+    "8": {
+      "block_drop_chance": 0.38,
+      "buy": 12,
+      "can_drop": true,
+      "farmable": false,
+      "gem_drop_chance": 0.12,
+      "in_catalog": true,
+      "name": "Plank",
+      "rarity": 1,
+      "seed_drop": -1,
+      "seed_drop_chance": 0.08,
+      "sell": 5
+    },
+    "9": {
+      "block_drop_chance": 0.92,
+      "buy": 3,
+      "can_drop": true,
+      "farmable": true,
+      "gem_drop_chance": 0.55,
+      "in_catalog": true,
+      "name": "Sand",
+      "rarity": 0,
+      "seed_drop": 4,
+      "seed_drop_chance": 0.42,
+      "sell": 1
+    }
+  },
+  "mc_trials": 20000,
+  "quests": [
+    {
+      "blurb": "Harvest 10 mature crops (any farmable crop).",
+      "goal": 10,
+      "id": "harvest_10",
+      "reward_count": 3,
+      "reward_gems": 40,
+      "reward_item": 13,
+      "title": "First Harvest",
+      "type": "harvest_crops"
+    },
+    {
+      "blurb": "Plant 5 seeds on soil.",
+      "goal": 5,
+      "id": "plant_5",
+      "reward_count": 4,
+      "reward_gems": 25,
+      "reward_item": 10,
+      "title": "Green Thumb",
+      "type": "plant_seeds"
+    },
+    {
+      "blurb": "Splice seeds 3 times (Y key or Splice button) to discover new crops.",
+      "goal": 3,
+      "id": "splice_3",
+      "reward_count": 2,
+      "reward_gems": 50,
+      "reward_item": 14,
+      "title": "Seed Discovery",
+      "type": "splice_seeds"
+    }
+  ],
+  "recipes": [
+    {
+      "blurb": "2 Wood → 1 Plank",
+      "id": "plank",
+      "ingredients": [
+        {
+          "count": 2,
+          "id": 6
+        }
+      ],
+      "name": "Plank",
+      "result": 8,
+      "result_count": 1
+    },
+    {
+      "blurb": "1 Wood → 2 Torches",
+      "id": "torch",
+      "ingredients": [
+        {
+          "count": 1,
+          "id": 6
+        }
+      ],
+      "name": "Torch",
+      "result": 7,
+      "result_count": 2
+    },
+    {
+      "blurb": "4 Plank + 2 Torch → sun console",
+      "id": "weather_machine",
+      "ingredients": [
+        {
+          "count": 4,
+          "id": 8
+        },
+        {
+          "count": 2,
+          "id": 7
+        }
+      ],
+      "name": "Weather Machine",
+      "result": 12,
+      "result_count": 1
+    },
+    {
+      "blurb": "1 Groveberry + 1 Dirt → 2 Fertilizer (halves grow time)",
+      "id": "fertilizer",
+      "ingredients": [
+        {
+          "count": 1,
+          "id": 5
+        },
+        {
+          "count": 1,
+          "id": 1
+        }
+      ],
+      "name": "Fertilizer",
+      "result": 13,
+      "result_count": 2
+    }
+  ],
+  "splice": {
+    "results": {
+      "10,14": 18,
+      "10,16": 18,
+      "10,4": 14,
+      "14,10": 18,
+      "14,16": 18,
+      "14,4": 16,
+      "16,10": 18,
+      "16,14": 18,
+      "16,4": 18,
+      "4,10": 14,
+      "4,14": 16,
+      "4,16": 18
+    },
+    "seed_ids": [
+      4,
+      10,
+      14,
+      16,
+      18
+    ]
+  },
+  "store_stock": [
+    1,
+    2,
+    3,
+    4,
+    6,
+    7,
+    8,
+    9,
+    10,
+    12,
+    13,
+    20
+  ],
+  "tile_ids": {
+    "AIR": 0,
+    "CROP": 5,
+    "CROP_AZURE": 11,
+    "CROP_CRYSTAL": 19,
+    "CROP_EMBER": 15,
+    "CROP_MOON": 17,
+    "DIRT": 1,
+    "FERTILIZER": 13,
+    "GRASS": 2,
+    "PLANK": 8,
+    "SAND": 9,
+    "SEED": 4,
+    "SEED_AZURE": 10,
+    "SEED_CRYSTAL": 18,
+    "SEED_EMBER": 14,
+    "SEED_MOON": 16,
+    "STONE": 3,
+    "TORCH": 7,
+    "WEATHER_MACHINE": 12,
+    "WOOD": 6,
+    "WORLD_LOCK": 20
+  },
+  "tiles": {
+    "-1": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "",
+      "seed_for_crop": 4
+    },
+    "0": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Air",
+      "seed_for_crop": 4
+    },
+    "1": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": true,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Dirt",
+      "seed_for_crop": 4
+    },
+    "10": {
+      "crop_for_seed": 11,
+      "grow_seconds": 12,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": true,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Azureoot Seed",
+      "seed_for_crop": 4
+    },
+    "11": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": true,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Azureoot",
+      "seed_for_crop": 10
+    },
+    "12": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Weather Machine",
+      "seed_for_crop": 4
+    },
+    "13": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": true,
+      "name": "Fertilizer",
+      "seed_for_crop": 4
+    },
+    "14": {
+      "crop_for_seed": 15,
+      "grow_seconds": 15,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": true,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Emberfruit Seed",
+      "seed_for_crop": 4
+    },
+    "15": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": true,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Emberfruit",
+      "seed_for_crop": 14
+    },
+    "16": {
+      "crop_for_seed": 17,
+      "grow_seconds": 18,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": true,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Moonpetal Seed",
+      "seed_for_crop": 4
+    },
+    "17": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": true,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Moonpetal",
+      "seed_for_crop": 16
+    },
+    "18": {
+      "crop_for_seed": 19,
+      "grow_seconds": 24,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": true,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Crystalroot Seed",
+      "seed_for_crop": 4
+    },
+    "19": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": true,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Crystalroot",
+      "seed_for_crop": 18
+    },
+    "2": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": true,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Grass",
+      "seed_for_crop": 4
+    },
+    "20": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "World Lock",
+      "seed_for_crop": 4
+    },
+    "21": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "",
+      "seed_for_crop": 4
+    },
+    "22": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "",
+      "seed_for_crop": 4
+    },
+    "3": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Stone",
+      "seed_for_crop": 4
+    },
+    "4": {
+      "crop_for_seed": 5,
+      "grow_seconds": 8,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": true,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Sprout",
+      "seed_for_crop": 4
+    },
+    "5": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": true,
+      "is_placeable": false,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Groveberry",
+      "seed_for_crop": 4
+    },
+    "6": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Wood",
+      "seed_for_crop": 4
+    },
+    "7": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": false,
+      "is_usable_item": false,
+      "name": "Torch",
+      "seed_for_crop": 4
+    },
+    "8": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Plank",
+      "seed_for_crop": 4
+    },
+    "9": {
+      "crop_for_seed": 5,
+      "grow_seconds": -1,
+      "is_crop": false,
+      "is_placeable": true,
+      "is_seed": false,
+      "is_soil": false,
+      "is_solid": true,
+      "is_usable_item": false,
+      "name": "Sand",
+      "seed_for_crop": 4
+    }
+  },
+  "world": {
+    "FERTILIZER_FACTOR": 0.5,
+    "H": 40,
+    "W": 64
+  }
+}

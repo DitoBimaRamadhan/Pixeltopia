@@ -30,6 +30,8 @@ With `DENO_DEPLOY` set and no `PORT`, the server listens on 8000.
    - `DATABASE_URL` = Neon **pooled** connection string
    - `PG_DRIVER` = `neon` (Postgres over WebSocket :443)
    - `JWT_SECRET` = long random string
+   - `SERVER_INV` = `1` (server-authoritative inventory, v1.7.0+)
+   - `MIN_PROTO` = `2` (APKs older than v1.7.0 are told to update; optional `UPDATE_URL`)
    - optional: `SHARD_COUNT=2`, `MAX_CONN_PER_SHARD=150`
    Then redeploy (Builds → *Deploy Default Branch*).
 4. URL is `https://<app>.<org>.deno.net`. Check `/health` → `"storage":"postgres","runtime":"deno"`.
@@ -39,6 +41,14 @@ Free plan: 1M requests, 20 GiB egress, 10 CPU-h, 150 GiB-h memory per month. The
 zero when idle (cold start < 1 s); open WebSockets + the server's 25 s ping keep it alive.
 Instances can be evicted/restarted at any time — worlds are flushed to Postgres every 30 s and
 on SIGINT, and the client should reconnect.
+
+### Inventory rollout (v1.7.0)
+
+Order used in production: deploy the server code, publish the v1.7.0 APK on GitHub Releases, then set
+`SERVER_INV=1` (phase A: wallets are authoritative, client `inv_sync` is ignored) and `MIN_PROTO=2`
+(phase B: older APKs get an update message linking to the release). **Rollback**: unset `MIN_PROTO`
+to let old APKs back in; unset `SERVER_INV` to return to client-side inventories (wallet tables are kept,
+nothing is deleted). Both are env changes only — redeploy/restart to apply.
 
 ## 2b. Docker hosts (Back4app Containers free, Zeabur, HF Spaces, VPS)
 

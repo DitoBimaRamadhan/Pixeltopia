@@ -12,9 +12,11 @@ const crypto = require('crypto');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createAuth } = require('./lib/auth');
-const { createWorldManager } = require('./lib/world_manager');
+const { createWorldManager, plantsReadyIn } = require('./lib/world_manager');
+const rules = require('./lib/rules');
 const { createWorldSync } = require('./lib/world_sync');
 const { createStore } = require('./lib/store');
+const invServer = require('./lib/inv_server');
 
 // Load server/.env (gitignored) without overriding real env vars from the host.
 (function loadDotEnv() {
@@ -50,6 +52,16 @@ const INSTANCE_ID = process.env.INSTANCE_ID || `${process.env.DENO_REGION || 'lo
 const SYNC_POLL_MS = Math.max(50, Number(process.env.SYNC_POLL_MS || 150));
 const DUP_LOGIN_SETTLE_MS = Math.max(0, Number(process.env.DUP_LOGIN_SETTLE_MS || 1500));
 const MAINTENANCE_MS = 5 * 60 * 1000;
+// Server-authoritative inventory (see lib/inv_server.js and README "Server inventory"). OFF unless
+// SERVER_INV=1. With it on the server owns every inventory change online: wallets in Postgres for
+// accounts, a session-only kit for guests; client inventory writes (inv_sync / profile inventory) are ignored.
+const SERVER_INV = process.env.SERVER_INV === '1';
+// Clients older than MIN_PROTO (v1.7.0 sends proto=2) are refused with an "update" message (0 = allow all).
+const CLIENT_PROTO = 2;
+const MIN_PROTO = Math.max(0, Number(process.env.MIN_PROTO || 0) | 0);
+const UPDATE_URL = process.env.UPDATE_URL || 'https://github.com/DitoBimaRamadhan/Pixeltopia/releases/latest';
+const UPDATE_MSG = `Versi game kamu sudah lama. Update ke Pixeltopia v1.7.0 di ${UPDATE_URL}`;
+const clientProto = (v) => { const n = Number(v); return Number.isFinite(n) ? n | 0 : 0; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const store = createStore({ dataDir: DATA_DIR });
@@ -181,6 +193,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/register') {
       const body = await readBody(req);
+      if (clientProto(body.proto) < MIN_PROTO) return sendJson(res, 426, { error: UPDATE_MSG, update: true, url: UPDATE_URL });
       const username = String(body.username || '').trim();
       res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
@@ -196,6 +209,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/login') {
       const body = await readBody(req);
+      if (clientProto(body.proto) < MIN_PROTO) return sendJson(res, 426, { error: UPDATE_MSG, update: true, url: UPDATE_URL });
       const username = String(body.username || '').trim();
       res._logUser = username.slice(0, 32);
       const password = String(body.password || '');
@@ -260,6 +274,170 @@ function saveProfile(player) {
   return player.savingProfile;
 }
 
+/**
+ * SERVER_INV: create the account's wallet once (concurrent logins on several instances race on
+ * INSERT .. ON CONFLICT DO NOTHING, so exactly one seeds). Migrating accounts are seeded from their stored
+ * profile inventory (sanitized/capped), brand-new ones from the starter kit. Sets player.srvInv.
+ */
+async function ensureWallet(player, profile) {
+  if (!SERVER_INV || !player.authed) return null;
+  const plan = invServer.seedForProfile(profile);
+  try {
+    const r = await store.invEnsure(player.id, plan.seed, plan.seededFrom);
+    player.srvInv = r.state;
+    if (r.created) {
+      const total = Object.values(r.state.items).reduce((a, b) => a + b, 0);
+      console.log(`[inv] seeded user=${player.id} from=${plan.seededFrom} kinds=${Object.keys(r.state.items).length} total=${total} gems=${r.state.gems}`);
+      if (plan.issues.length) console.warn(`[inv] suspicious seed user=${player.id} ${plan.issues.slice(0, 12).join(' ')}`);
+    }
+    return r.state;
+  } catch (e) {
+    console.warn(`[inv] ensure wallet failed user=${player.id}: ${e.message}`);
+    return null;
+  }
+}
+// ---- SERVER_INV step 3: place costs, refunds, owner World Lock credit -----------------------------
+const INV_NO_ITEM = 'Item tidak cukup';
+const INV_NOT_READY = 'Inventori server belum siap, coba lagi.';
+/** Keep the newest wallet state for this connection and push it to the client as {t:'inv'}. */
+function setSrvInv(player, st) {
+  if (!st || player.closed) return;
+  if (player.srvInv && Number(st.ver) < Number(player.srvInv.ver)) return; // older answer arrived late
+  player.srvInv = st;
+  safeSend(player.ws, { t: 'inv', ver: st.ver, items: st.items, gems: st.gems });
+}
+/**
+ * No-wallet rule (SERVER_INV): a logged-in session without a wallet in memory (e.g. the DB hiccuped at
+ * login) first retries the normal one-time ensure — which just LOADS the wallet if it already exists, or
+ * seeds it exactly like login would (stored profile, same caps; never from an unreadable profile).
+ * If that still fails, the action is REFUSED (fail closed): nothing is placed and nothing is spent.
+ */
+async function ensureWalletOnDemand(player) {
+  if (!SERVER_INV || !player.authed || player.srvInv) return player.srvInv || null;
+  if (!player.invEnsuring) {
+    player.invEnsuring = (async () => {
+      let prof;
+      try { prof = await store.getProfile(player.id); } catch (e) { console.warn(`[inv] on-demand profile read failed user=${player.id}: ${e.message}`); return null; }
+      const st = await ensureWallet(player, prof);
+      if (st) setSrvInv(player, st);
+      return st;
+    })().finally(() => { player.invEnsuring = null; });
+  }
+  return player.invEnsuring;
+}
+/** Idempotent server-side inventory change with a few retries (op_id makes retries safe). */
+async function invOpWithRetry(opId, userId, ops, reason) {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      const r = await store.invApply(opId, userId, ops, reason);
+      if (r.ok) {
+        if (!r.dup) console.log(`[inv] ${reason} user=${userId} op=${opId} ver=${r.ver}`);
+        for (const p of localPlayersById(userId)) setSrvInv(p, { ver: r.ver, gems: r.gems, items: r.items });
+      } else {
+        console.warn(`[inv] ${reason} refused user=${userId} op=${opId} error=${r.error}`);
+      }
+      return r;
+    } catch (e) {
+      console.warn(`[inv] ${reason} attempt ${attempt + 1} failed user=${userId} op=${opId}: ${e.message}`);
+      await sleep(250 * 2 ** attempt);
+    }
+  }
+  console.error(`[inv] ${reason} GAVE UP user=${userId} op=${opId}`);
+  return null;
+}
+/** Push a guest's session inventory to its client. */
+function pushGuestInv(player) {
+  if (!player.guestInv || player.closed) return;
+  const s = invServer.guestState(player.guestInv);
+  safeSend(player.ws, { t: 'inv', ver: s.ver, items: s.items, gems: s.gems, guest: true });
+}
+/** Apply ops to an account wallet or a guest kit; returns {ok, dup?, error?, state}. */
+async function applyPlayerOps(player, opId, ops, reason) {
+  if (!player.authed) {
+    const r = invServer.guestApply(player.guestInv, opId, ops);
+    pushGuestInv(player);
+    return r;
+  }
+  const r = await store.invApply(opId, player.id, ops, reason);
+  const st = r.ver === undefined ? null : { ver: r.ver, gems: r.gems, items: r.items };
+  if (st) for (const p of localPlayersById(player.id)) setSrvInv(p, st);
+  if (r.ok && !r.dup) console.log(`[inv] ${reason} user=${player.id} op=${opId} ver=${r.ver}`);
+  return { ok: r.ok, dup: r.dup, error: r.error, state: st };
+}
+const REWARD_FRESH_MS = 60000; // replays of old events (world reload) must not show reward popups again
+function sendReward(userId, e, ev) {
+  if (!e.reward || Date.now() - (Number(ev.createdAt) || Date.now()) > REWARD_FRESH_MS) return;
+  for (const p of localPlayersById(userId)) safeSend(p.ws, { t: 'reward', ...e.reward, world: ev.world || p.worldName });
+}
+/**
+ * Every punch/place/fertilize applied from the log (all instances): run its inventory effects (refunds,
+ * WL credit, break/harvest drops). Account effects go to the DB (idempotent op ids, so N instances = once);
+ * guest effects only on the instance holding that guest's session kit.
+ */
+function onInvEventApplied(world, ev, r, { prevLockOwnerId }) {
+  if (!SERVER_INV) return;
+  for (const e of invServer.invEffectsForEvent(world.name, ev, r, prevLockOwnerId)) {
+    if (e.guest) {
+      for (const p of localPlayersById(e.userId)) {
+        if (p.authed || !p.guestInv) continue;
+        const g = invServer.guestApply(p.guestInv, e.opId, e.ops);
+        if (g.ok && !g.dup) { pushGuestInv(p); sendReward(e.userId, e, ev); }
+      }
+      continue;
+    }
+    invOpWithRetry(e.opId, e.userId, e.ops, e.reason).then((res) => { if (res && res.ok) sendReward(e.userId, e, ev); });
+  }
+}
+
+/** Echo a confirmed-looking place/fertilize to the world (the log may still correct it later). */
+function broadcastEdit(world, player, r, fert) {
+  if (fert) {
+    broadcastWorld(world, { t: 'plant', x: r.x, y: r.y, readyIn: Math.round(r.readyAt - Date.now()), boosted: true, by: player.id });
+    return;
+  }
+  const tile = {
+    t: 'tile', x: r.x, y: r.y, id: r.id, by: player.id, action: 'place',
+    lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
+  };
+  if (r.readyAt) tile.readyIn = Math.round(r.readyAt - Date.now());
+  broadcastWorld(world, tile);
+}
+
+/**
+ * Step 5: shop / craft / splice / quest claims, validated and applied atomically on the server.
+ * Reply: {t:'inv_result', op, req, ok, error?, result?} (+ the new {t:'inv'} state).
+ * op_ids are server-generated (<reason>:<userId>:<random>), so a replayed client message cannot collide.
+ */
+async function handleInvRequest(player, t, msg) {
+  const reply = (o) => safeSend(player.ws, { t: 'inv_result', op: t, req: msg.req ?? null, ...o });
+  if (!SERVER_INV) return reply({ ok: false, error: 'Inventori server belum aktif.' });
+  if (t === 'quest_state') {
+    if (!player.authed) return safeSend(player.ws, { t: 'quest_state', progress: {}, claimed: [], guest: true });
+    const progress = {};
+    for (const q of rules.QUESTS) progress[q.id] = await store.invProgress(player.id, invServer.QUEST_PROGRESS_REASON[q.type]);
+    return safeSend(player.ws, { t: 'quest_state', progress, claimed: await store.questClaimed(player.id) });
+  }
+  if (player.authed && !(player.srvInv || await ensureWalletOnDemand(player))) return reply({ ok: false, error: INV_NOT_READY });
+  const nonce = crypto.randomBytes(6).toString('hex');
+  if (t === 'quest_claim') {
+    if (!player.authed) return reply({ ok: false, error: 'Login dulu untuk klaim hadiah quest.' });
+    const plan = invServer.questClaimOps(msg.qid);
+    if (plan.error) return reply({ ok: false, error: plan.error });
+    const r = await store.questClaim(player.id, plan.quest.id, { countReason: plan.countReason, goal: plan.goal, opId: `quest:${player.id}:${plan.quest.id}`, ops: plan.ops });
+    if (r.state) for (const p of localPlayersById(player.id)) setSrvInv(p, r.state);
+    if (r.ok) console.log(`[inv] quest user=${player.id} qid=${plan.quest.id}`);
+    return reply({ ok: r.ok, qid: plan.quest.id, progress: r.progress, error: r.ok ? undefined : invServer.invErrorText(r.error), code: r.error,
+      result: r.ok ? { gems: plan.ops.gems || 0, items: plan.ops.items } : undefined });
+  }
+  const plan = t === 'craft' ? invServer.craftOps(msg.recipe ?? msg.id)
+    : t === 'splice' ? invServer.spliceOps(msg.a, msg.b)
+      : t === 'shop_buy' ? invServer.buyOps(msg.id, msg.n ?? 1)
+        : invServer.sellOps(msg.id, msg.n ?? 1);
+  if (plan.error) return reply({ ok: false, error: plan.error });
+  const r = await applyPlayerOps(player, `${plan.reason}:${player.id}:${nonce}`, plan.ops, plan.reason);
+  return reply({ ok: r.ok, error: r.ok ? undefined : invServer.invErrorText(r.error), code: r.error, result: r.ok ? plan.result : undefined });
+}
+
 const wss = new WebSocketServer({
   server, path: '/ws',
   perMessageDeflate: COMPRESS_WS ? {
@@ -291,6 +469,12 @@ function canFulfill(player, offer) {
   for (const it of offer.items || []) if ((player.inv.items[it.id] | 0) < (it.n | 0)) return false;
   return true;
 }
+function walletCanFulfill(st, offer) {
+  if ((Number(st.gems) || 0) < (offer.gems | 0)) return false;
+  const need = invServer.offerItems(offer);
+  for (const [id, n] of Object.entries(need)) if ((Number(st.items[id]) || 0) < n) return false;
+  return true;
+}
 function applyOffer(player, offer, sign) {
   player.inv.gems = Math.max(0, (player.inv.gems | 0) + sign * (offer.gems | 0));
   for (const it of offer.items || []) {
@@ -300,7 +484,10 @@ function applyOffer(player, offer, sign) {
   }
 }
 function deliverTradePayload(p, payload) {
-  if (payload && payload.t === 'trade' && payload.event === 'completed') {
+  if (payload && payload.t === 'trade' && payload.event === 'completed' && payload.serverInv) {
+    // Settled in the DB (trade_settle): just refresh this player's wallet from there.
+    if (p.authed) store.invGet(p.id).then((st) => setSrvInv(p, st)).catch((e) => console.warn('[trade] wallet refresh failed', e.message));
+  } else if (payload && payload.t === 'trade' && payload.event === 'completed') {
     // Keep the server's view of this player's inventory in step with the client (as before).
     applyOffer(p, (payload.take || {})[p.id] || { items: [], gems: 0 }, -1);
     applyOffer(p, (payload.give || {})[p.id] || { items: [], gems: 0 }, +1);
@@ -318,6 +505,7 @@ function deliverToPlayer(id, obj) {
 const sync = createWorldSync({
   store, worlds, instanceId: INSTANCE_ID, broadcastWorld, deliverToPlayer, localPlayers,
   kickPlayer: (p) => kickPlayer(p), pollMs: SYNC_POLL_MS,
+  onEventApplied: (world, ev, r, ctx) => onInvEventApplied(world, ev, r, ctx),
 });
 
 // World list (all instances): DB summary with live player counts from presence, cached briefly.
@@ -348,6 +536,7 @@ function worldSnapshot(world) {
     t: 'world_state', name: world.name, w: worlds.W, h: worlds.H, seed: world.seed,
     grid: worlds.gridArray(world), spawn: world.spawn,
     lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
+    plants: plantsReadyIn(world), // tile index -> ms until ready (<= 0: ready to harvest)
     players,
   };
 }
@@ -424,12 +613,16 @@ async function cancelTradeFor(player) {
 }
 async function handleTrade(player, ws, world, t, msg) {
   const err = (error) => safeSend(ws, { t: 'error', error });
+  if (!player.authed) return err('Login dulu untuk trade (tamu tidak bisa trade).');
   if (t === 'trade_request') {
     if (!world) return err('Join dunia dulu.');
     const toId = String(msg.to || '');
     const target = world.players.get(toId) || (world.remote && world.remote.get(toId));
     if (!target) return err('Pemain tidak di dunia ini.');
     if (!toId || toId === player.id) return err('Target trade tidak valid.');
+    const localTarget = world.players.get(toId);
+    const targetAuthed = localTarget ? localTarget.authed : !!(await store.getUserById(toId));
+    if (!targetAuthed) return err('Pemain itu tamu — tamu tidak bisa trade.');
     const mine = await store.tradeActiveFor(player.id);
     if (mine && mine.status === 'open') return err('Kamu sudah dalam trade.');
     const created = await store.tradeCreate({
@@ -478,7 +671,12 @@ async function handleTrade(player, ws, world, t, msg) {
     }
     if (t === 'trade_ready') {
       const isReady = msg.ready !== false;
-      if (isReady && !canFulfill(player, s.offers[player.id] || emptyOffer())) {
+      let fulfil = true;
+      if (isReady && SERVER_INV) {
+        const st = player.srvInv || await ensureWalletOnDemand(player);
+        fulfil = !!st && walletCanFulfill(st, s.offers[player.id] || emptyOffer());
+      } else if (isReady) fulfil = canFulfill(player, s.offers[player.id] || emptyOffer());
+      if (isReady && !fulfil) {
         const u = await store.tradeUpdate(s.id, s.version, { ready: { [s.a]: false, [s.b]: false } });
         if (!u) continue;
         notifyTradeParties(u, { t: 'trade', event: 'failed', error: 'Inventori tidak cukup.', trade: tradePublic(u) });
@@ -487,6 +685,31 @@ async function handleTrade(player, ws, world, t, msg) {
       const u = await store.tradeUpdate(s.id, s.version, { ready: { ...s.ready, [player.id]: isReady } });
       if (!u) continue;
       notifyTradeParties(u, { t: 'trade', event: 'ready', trade: tradePublic(u) });
+      if (u.ready[u.a] && u.ready[u.b] && SERVER_INV) {
+        // Both wallets + status in ONE transaction (trade_settle): all or nothing, exactly once.
+        const offerA = u.offers[u.a] || emptyOffer();
+        const offerB = u.offers[u.b] || emptyOffer();
+        const ops = invServer.tradeOps(offerA, offerB);
+        const res = await store.tradeSettle(u.id, u.version, ops.a, ops.b);
+        if (!res.ok) {
+          if (res.error === 'conflict') return;
+          console.warn(`[trade] settle refused trade=${u.id} side=${res.side || '-'} error=${res.error}`);
+          const f = await store.tradeUpdate(u.id, u.version, { ready: { [u.a]: false, [u.b]: false } });
+          if (f) notifyTradeParties(f, { t: 'trade', event: 'failed', error: 'Inventori tidak cukup.', trade: tradePublic(f) });
+          return;
+        }
+        const done = res.trade;
+        console.log(`[inv] trade settled trade=${done.id} a=${done.a} b=${done.b}`);
+        if (res.invA) for (const p of localPlayersById(done.a)) setSrvInv(p, res.invA);
+        if (res.invB) for (const p of localPlayersById(done.b)) setSrvInv(p, res.invB);
+        store.logTrade({ a: done.a, b: done.b, world: done.worldName, offerA, offerB })
+          .catch((e) => console.warn('[store] logTrade failed', e.message));
+        notifyTradeParties(done, {
+          t: 'trade', event: 'completed', serverInv: true, trade: tradePublic(done),
+          give: { [done.a]: offerB, [done.b]: offerA }, take: { [done.a]: offerA, [done.b]: offerB },
+        });
+        return;
+      }
       if (u.ready[u.a] && u.ready[u.b]) {
         // Exactly one caller can flip open → done, so items are handed over once.
         const done = await store.tradeComplete(u.id, u.version);
@@ -529,6 +752,13 @@ wss.on('connection', (ws, req) => {
   if (shard.connections.size >= shard.maxPlayers) { ws.close(1013, 'shard full'); return; }
   if (totalConnections() >= SHARD_COUNT * MAX_CONN_PER_SHARD) { ws.close(1013, 'server full'); return; }
 
+  if (clientProto(url.searchParams.get('proto')) < MIN_PROTO) {
+    // Old APK: v1.6 shows `kicked` errors in its status line; v1.7+ also understands update_required.
+    safeSend(ws, { t: 'update_required', error: UPDATE_MSG, url: UPDATE_URL, minProto: MIN_PROTO });
+    safeSend(ws, { t: 'kicked', reason: 'update_required', error: UPDATE_MSG });
+    setTimeout(() => { try { ws.close(4002, 'update required'); } catch { /* ignore */ } }, 200);
+    return;
+  }
   const player = {
     id: authPayload?.sub || crypto.randomBytes(4).toString('hex'),
     username: authPayload?.username || `guest-${Math.floor(Math.random() * 9999)}`,
@@ -536,6 +766,9 @@ wss.on('connection', (ws, req) => {
     inv: { items: {}, gems: 0 }, authed: !!authPayload?.sub, pendingProfile: null, pendingRev: 0,
     connId: crypto.randomBytes(6).toString('hex'), kicked: false, closed: false,
   };
+  // Guests (SERVER_INV): session-only kit, starter minus the World Lock; reset on every connect, never saved.
+  if (SERVER_INV && !player.authed) player.guestInv = invServer.createGuestWallet();
+  player.opCounter = 0;
   ws._player = player;
   shard.connections.add(ws);
   shard.players = shard.connections.size;
@@ -548,7 +781,7 @@ wss.on('connection', (ws, req) => {
   });
   // Everything this connection sends is handled strictly in order, after the welcome.
   player.chain = (async () => {
-    if (!player.authed) return sendWelcome(null);
+    if (!player.authed) { await sendWelcome(null); pushGuestInv(player); return; }
     // Kick older connections of this account (same instance now; other instances on their next check),
     // and let them flush their profile before we read it.
     const waits = localPlayers().filter((o) => o !== player && o.id === player.id).map((o) => kickPlayer(o));
@@ -557,8 +790,15 @@ wss.on('connection', (ws, req) => {
     if (claim && claim.prevConnId && claim.prevInstanceId !== INSTANCE_ID) await sleep(DUP_LOGIN_SETTLE_MS);
     await Promise.allSettled(waits);
     let prof = null;
-    try { prof = await store.getProfile(player.id); } catch (e) { console.warn('[store] getProfile failed', e.message); }
-    return sendWelcome(prof);
+    let profOk = false;
+    try { prof = await store.getProfile(player.id); profOk = true; } catch (e) { console.warn('[store] getProfile failed', e.message); }
+    // Seed only from a profile we could actually read: a failed read must not seed an old account as 'starter'.
+    if (SERVER_INV && profOk && !player.closed && !player.kicked) await ensureWallet(player, prof);
+    await sendWelcome(prof);
+    if (player.srvInv) {
+      const s = player.srvInv;
+      safeSend(ws, { t: 'inv', ver: s.ver, items: s.items, gems: s.gems });
+    }
   })().catch((e) => console.error('[ws] welcome failed', e.message));
 
   ws.on('message', (raw) => {
@@ -581,6 +821,7 @@ wss.on('connection', (ws, req) => {
           if (id >= 0 && n > 0) items[id] = n;
         }
       }
+      if (SERVER_INV) return; // server owns the inventory: client-reported totals are ignored
       player.inv = { items, gems: Math.max(0, msg.gems | 0) };
       return;
     }
@@ -588,6 +829,10 @@ wss.on('connection', (ws, req) => {
       if (!player.authed) return;
       const prof = sanitizeProfile(msg.profile);
       if (!prof) return safeSend(ws, { t: 'error', error: 'Profil terlalu besar / tidak valid.' });
+      // SERVER_INV: the stored profile inventory is only the client's slot layout, never trusted (the wallet
+      // is authoritative and is seeded once). Before the wallet exists the save is skipped so a client
+      // write can never become the seed of a migrating account.
+      if (SERVER_INV && !player.srvInv) { console.warn(`[inv] profile_save before wallet ignored user=${player.id}`); return; }
       player.pendingProfile = prof;
       player.pendingRev = Math.max(Date.now(), (player.pendingRev || 0) + 1);
       if (msg.now) saveProfile(player);
@@ -625,23 +870,64 @@ wss.on('connection', (ws, req) => {
     const world = player.worldName ? worlds.getWorld(player.worldName) : null;
     if (t === 'punch') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
-      const r = sync.submit(world, { kind: 'punch', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y });
+      const ev = { kind: 'punch', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y };
+      if (SERVER_INV) { if (player.authed) ev.invCredit = true; else ev.guest = true; }
+      const r = sync.submit(world, ev);
       if (r.error) return safeSend(ws, { t: 'error', error: r.error });
       if (r.noop) return;
-      broadcastWorld(world, {
+      const tile = {
         t: 'tile', x: r.x, y: r.y, id: r.id, by: player.id, action: 'punch', broke: r.broke,
         lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
-      });
+      };
+      if (r.harvest !== undefined) tile.harvest = r.harvest;
+      broadcastWorld(world, tile);
       return;
     }
-    if (t === 'place') {
+    if (t === 'place' || t === 'fertilize') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
-      const r = sync.submit(world, { kind: 'place', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y, id: msg.id });
+      const fert = t === 'fertilize';
+      if (fert && !SERVER_INV) return safeSend(ws, { t: 'error', error: 'Pupuk online belum aktif.' });
+      const id = fert ? rules.TILE.FERTILIZER : msg.id | 0;
+      const ev = fert
+        ? { kind: 'fertilize', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y }
+        : { kind: 'place', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y, id };
+      let opts = {};
+      if (SERVER_INV) {
+        if (!fert) ev.strict = true; // placeable ids only, seeds only on soil (guests too)
+        const reason = fert ? 'fertilize' : rules.isSeed(id) ? 'plant' : 'place';
+        if (player.authed) {
+          const st = player.srvInv || await ensureWalletOnDemand(player);
+          if (!st) return safeSend(ws, { t: 'error', error: INV_NOT_READY });
+          if (!((Number(st.items[id]) || 0) >= 1)) { setSrvInv(player, st); return safeSend(ws, { t: 'error', error: INV_NO_ITEM }); }
+          opts = {
+            inv: { userId: player.id, ops: { items: { [id]: -1 } }, reason },
+            onInv: (s2) => setSrvInv(player, s2),
+            failMessage: (e) => (String(e).startsWith('insufficient_item') ? INV_NO_ITEM : e === 'no_wallet' ? INV_NOT_READY : null),
+          };
+        } else {
+          // Guest: pay from the session kit now; refunded in memory if the log rejects it or the append fails.
+          if (id === rules.TILE.WORLD_LOCK) return safeSend(ws, { t: 'error', error: 'Login dulu untuk memakai World Lock.' });
+          const g = player.guestInv;
+          if (!((Number(g.items[id]) || 0) >= 1)) { pushGuestInv(player); return safeSend(ws, { t: 'error', error: INV_NO_ITEM }); }
+          ev.guest = true;
+          const payId = `g${reason}:${player.id}:${++player.opCounter}`;
+          const paid = invServer.guestApply(g, payId, { items: { [id]: -1 } });
+          if (!paid.ok) { pushGuestInv(player); return safeSend(ws, { t: 'error', error: INV_NO_ITEM }); }
+          const refund = () => { invServer.guestApply(g, `refund:${payId}`, { items: { [id]: 1 } }); pushGuestInv(player); };
+          // invOp marks the event as paid: a log rejection is refunded via invEffectsForEvent (guest:true).
+          opts = { invOp: `g${reason}:${player.id}`, onFail: refund };
+          const r = sync.submit(world, ev, opts);
+          if (r.error) { refund(); return safeSend(ws, { t: 'error', error: r.error }); }
+          pushGuestInv(player);
+          return broadcastEdit(world, player, r, fert);
+        }
+      }
+      const r = sync.submit(world, ev, opts);
       if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      broadcastWorld(world, {
-        t: 'tile', x: r.x, y: r.y, id: r.id, by: player.id, action: 'place',
-        lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
-      });
+      return broadcastEdit(world, player, r, fert);
+    }
+    if (t === 'craft' || t === 'splice' || t === 'shop_buy' || t === 'shop_sell' || t === 'quest_claim' || t === 'quest_state') {
+      await handleInvRequest(player, t, msg);
       return;
     }
     if (t === 'chat') {
