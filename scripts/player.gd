@@ -65,6 +65,10 @@ func set_net(n: Node) -> void:
 func _net_online() -> bool:
 	return net != null and net.has_method("is_online") and net.is_online()
 
+## Online session (even while reconnecting): the server owns the inventory, so no local drops.
+func _online_session() -> bool:
+	return net != null and not Session.offline_mode
+
 func _physics_process(delta: float) -> void:
 	if paused:
 		_update_shake(delta)
@@ -133,6 +137,25 @@ func _spawn_float(text: String, color: Color = Color(1.0, 0.92, 0.45)) -> void:
 	ft.global_position = global_position + Vector2(0, -24)
 	ft.call("setup", text, color)
 
+## v1.7: the server rolled this break/harvest and put it in the wallet; show it like offline.
+func show_server_reward(data: Dictionary) -> void:
+	var bits: PackedStringArray = PackedStringArray()
+	var col := Color(0.55, 1.0, 0.85)
+	var first := true
+	for it in data.get("items", []):
+		var iid := int(it.get("id", -1))
+		if iid < 0:
+			continue
+		bits.append("%s ×%d" % [Items.display_name(iid), int(it.get("n", 1))])
+		if first:
+			col = Items.rarity_color(iid)
+			first = false
+	var g := int(data.get("gems", 0))
+	if g > 0:
+		bits.append("+%dg" % g)
+	if not bits.is_empty():
+		_spawn_float("+%s" % " · ".join(bits), col)
+
 func _on_tile_broken(world_pos: Vector2) -> void:
 	_shake(0.18, 4.0)
 	world_edited.emit()
@@ -165,6 +188,11 @@ func _try_auto_pickup(delta: float) -> void:
 		Sfx.play_harvest()
 
 func _drop_selected() -> void:
+	if _online_session():
+		## v1.7: ground drops are offline-only (rewards go straight to your server inventory).
+		_spawn_float("Drop hanya di mode offline", Color(1.0, 0.7, 0.45))
+		Sfx.play_ui()
+		return
 	var result: Dictionary = inv.drop_selected(1)
 	if result.is_empty():
 		_spawn_float("Can't drop", Color(1.0, 0.5, 0.5))
@@ -197,6 +225,11 @@ func _punch_or_use(t: Vector2i) -> void:
 		return
 	## Fertilizer on sprout
 	if Tiles.is_seed(id) and not inv.is_fist() and inv.get_selected_id() == Tiles.Id.FERTILIZER:
+		if _net_online() and net.server_inv:
+			## Server checks + charges the fertilizer and answers with a `plant` update (or an error).
+			net.send_fertilize(t.x, t.y)
+			Sfx.play_craft()
+			return
 		if world.try_fertilize(t.x, t.y):
 			inv.consume_selected(1)
 			_spawn_float("Fertilized!", Color(0.6, 0.95, 0.4))
@@ -210,7 +243,8 @@ func _punch_or_use(t: Vector2i) -> void:
 		if _net_online():
 			net.send_punch(t.x, t.y)
 			Sfx.play_harvest()
-			crops_harvested.emit(1)
+			if not net.server_inv:
+				crops_harvested.emit(1)  # v1.7 servers confirm harvests with a `reward` message
 			return
 		var hr: Dictionary = world.try_harvest(t.x, t.y, true, inv)
 		if int(hr.get("block", -1)) >= 0:
@@ -267,7 +301,7 @@ func _place(t: Vector2i) -> void:
 			if mainn.has_method("notify_planted"):
 				mainn.notify_planted()
 		if net.has_method("sync_inventory"):
-			net.sync_inventory(inv)
+			net.sync_inventory(inv)  # no-op once the server owns the inventory
 		return
 	if world.place_tile(t.x, t.y, id):
 		inv.consume_selected(1)

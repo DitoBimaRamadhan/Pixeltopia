@@ -126,6 +126,32 @@ func claim(qid: String, inv: Node) -> bool:
 	changed.emit()
 	return true
 
+## v1.7 online: progress + claimed come from the server (ledger), claims are server requests.
+func apply_server_state(progress: Dictionary, claimed: Array) -> void:
+	ensure()
+	for d in defs():
+		var qid: String = str(d["id"])
+		var st: Dictionary = state[qid]
+		st["progress"] = mini(int(progress.get(qid, st.get("progress", 0))), int(d.get("goal", 1)))
+		st["claimed"] = claimed.has(qid)
+		if st["claimed"]:
+			st["accepted"] = true
+		state[qid] = st
+	changed.emit()
+
+func mark_claimed(qid: String) -> void:
+	ensure()
+	if not state.has(qid):
+		return
+	var st: Dictionary = state[qid]
+	st["claimed"] = true
+	st["accepted"] = true
+	state[qid] = st
+	var main := get_parent()
+	if main and main.get("progress") and main.progress.has_method("report_quest"):
+		main.progress.report_quest()
+	changed.emit()
+
 func to_save() -> Dictionary:
 	return {"quests": state.duplicate(true)}
 

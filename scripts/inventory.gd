@@ -260,6 +260,63 @@ func selected_name() -> String:
 		n = counts[selected]
 	return "%s ×%d [%s]" % [Items.display_name(id), n, Items.rarity_name(id)]
 
+## v1.7 online: the server's wallet is the source of truth. Apply its per-item totals while keeping
+## the player's slot layout (existing stacks keep their place; extra goes to stacks / free slots).
+var server_mode: bool = false
+
+func apply_server_state(items: Dictionary, p_gems: int) -> void:
+	server_mode = true
+	var want := {}
+	for k in items.keys():
+		var n := int(items[k])
+		if n > 0:
+			want[int(k)] = n
+	for i in range(1, slots.size()):
+		var id: int = slots[i]
+		if id < 0 or counts[i] <= 0:
+			slots[i] = -1
+			counts[i] = 0
+			continue
+		var left: int = int(want.get(id, 0))
+		var keep: int = mini(counts[i], left)
+		counts[i] = keep
+		if keep <= 0:
+			slots[i] = -1
+		want[id] = left - keep
+	for id in want.keys():
+		var rest: int = int(want[id])
+		if rest > 0:
+			_add_silent(int(id), rest)
+	if selected >= slots.size():
+		selected = 0
+	gems = maxi(p_gems, 0)
+	changed.emit()
+	gems_changed.emit(gems)
+
+func _add_silent(id: int, n: int) -> void:
+	var left := n
+	for i in range(1, slots.size()):
+		if left <= 0:
+			return
+		if slots[i] == id and counts[i] > 0 and counts[i] < MAX_STACK:
+			var t: int = mini(MAX_STACK - counts[i], left)
+			counts[i] += t
+			left -= t
+	while left > 0:
+		var t2: int = mini(MAX_STACK, left)
+		var free := -1
+		for i in range(1, slots.size()):
+			if slots[i] < 0 or counts[i] <= 0:
+				free = i
+				break
+		if free < 0:
+			slots.append(id)
+			counts.append(t2)
+		else:
+			slots[free] = id
+			counts[free] = t2
+		left -= t2
+
 func to_save() -> Dictionary:
 	return {
 		"slots": slots.duplicate(),

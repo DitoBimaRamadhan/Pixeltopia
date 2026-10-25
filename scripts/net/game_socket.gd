@@ -14,6 +14,15 @@ signal trade_event(data: Dictionary)
 signal net_error(message: String)
 signal left_world
 signal profile_loaded(profile: Dictionary)
+## v1.7 server-authoritative inventory (SERVER_INV): the server's wallet is the truth online.
+signal inv_state(data: Dictionary)
+signal inv_result(data: Dictionary)
+signal reward(data: Dictionary)
+signal plant_update(data: Dictionary)
+signal quest_state(data: Dictionary)
+signal update_required(message: String, url: String)
+
+const CLIENT_PROTO := 2
 
 var is_guest: bool = true
 var storage: String = ""
@@ -29,6 +38,11 @@ var online: bool = false
 var was_kicked: bool = false
 var _move_cd: float = 0.0
 var _inv_cd: float = 0.0
+## True once the server sent an `inv` message: it owns the inventory (no more inv_sync).
+var server_inv: bool = false
+var _inv_ver: int = 0
+var _req_seq: int = 0
+var update_url: String = ""
 
 func is_online() -> bool:
 	return online and _active and current_world != ""
@@ -49,6 +63,10 @@ func connect_to_session() -> void:
 	var url := "%s%s" % [ws_base.rstrip("/"), path]
 	if url.find("token=") < 0:
 		url += ("&" if url.find("?") >= 0 else "?") + "token=%s" % Session.token.uri_encode()
+	if url.find("proto=") < 0:
+		url += ("&" if url.find("?") >= 0 else "?") + "proto=%d" % CLIENT_PROTO
+	server_inv = false
+	_inv_ver = 0
 	_peer = WebSocketPeer.new()
 	var err := _peer.connect_to_url(url)
 	if err != OK:
@@ -95,6 +113,7 @@ func _handle(raw: String) -> void:
 			my_id = str(you.get("id", ""))
 			my_username = str(you.get("username", Session.username))
 			is_guest = bool(you.get("guest", false))
+			_inv_ver = 0
 			storage = str(msg.get("storage", ""))
 			welcome.emit(msg)
 			var prof: Variant = msg.get("profile", null)
@@ -134,10 +153,30 @@ func _handle(raw: String) -> void:
 			lock_owner_name = str(msg.get("lockOwnerName", "") or "")
 			tile_update.emit({"x": -1, "y": -1, "id": 0, "lockOwnerId": msg.get("lockOwnerId", null), "lockOwnerName": msg.get("lockOwnerName", null)})
 		"kicked":
-			# Same account logged in elsewhere: show why, close cleanly, do not reconnect.
+			# Same account logged in elsewhere (or this APK is too old): show why, close, do not reconnect.
 			was_kicked = true
-			net_error.emit(str(msg.get("error", "Akun ini login dari perangkat lain.")))
+			if str(msg.get("reason", "")) != "update_required":
+				net_error.emit(str(msg.get("error", "Akun ini login dari perangkat lain.")))
 			disconnect_socket()
+		"update_required":
+			was_kicked = true
+			update_url = str(msg.get("url", ""))
+			update_required.emit(str(msg.get("error", "Versi game kamu sudah lama. Silakan update.")), update_url)
+		"inv":
+			var ver := int(msg.get("ver", 0))
+			if ver < _inv_ver and not bool(msg.get("guest", false)):
+				return  # an older state arrived late
+			_inv_ver = ver
+			server_inv = true
+			inv_state.emit(msg)
+		"inv_result":
+			inv_result.emit(msg)
+		"reward":
+			reward.emit(msg)
+		"plant":
+			plant_update.emit(msg)
+		"quest_state":
+			quest_state.emit(msg)
 
 func send_dict(d: Dictionary) -> void:
 	if not online:
@@ -168,11 +207,30 @@ func send_punch(x: int, y: int) -> void:
 func send_place(x: int, y: int, id: int) -> void:
 	send_dict({"t": "place", "x": x, "y": y, "id": id})
 
+func send_fertilize(x: int, y: int) -> void:
+	send_dict({"t": "fertilize", "x": x, "y": y})
+
+## craft {recipe} · splice {a, b} · shop_buy {id, n} · shop_sell {id, n} · quest_claim {qid} · quest_state
+## The server answers {t:'inv_result', op, req, ok, error?} plus a fresh {t:'inv'}.
+func send_inv_request(op: String, fields: Dictionary = {}) -> int:
+	_req_seq += 1
+	var d := fields.duplicate()
+	d["t"] = op
+	d["req"] = _req_seq
+	send_dict(d)
+	return _req_seq
+
+func request_quest_state() -> void:
+	if server_inv and not is_guest:
+		send_dict({"t": "quest_state"})
+
 func send_chat(text: String) -> void:
 	send_dict({"t": "chat", "text": text})
 
+## Legacy (pre-v1.7 servers only): report the local inventory. Once the server owns the
+## inventory (`inv` received) this is never sent — the server would ignore it anyway.
 func sync_inventory(inv: Node) -> void:
-	if _inv_cd > 0.0 or inv == null:
+	if server_inv or _inv_cd > 0.0 or inv == null:
 		return
 	_inv_cd = 1.0
 	var items := {}

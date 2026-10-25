@@ -277,6 +277,23 @@ func try_harvest(x: int, y: int, drop_to_ground: bool = true, inv: Node = null) 
 			inv.add_gems(g)
 	return result
 
+## v1.7 online: the server owns grow times. Seed at (x, y) is ready in `ready_in_ms`
+## (weather does not change online grow times).
+var online_growth: bool = false
+
+func set_plant_ready_in(x: int, y: int, ready_in_ms: float, boosted: bool = false) -> void:
+	if not in_bounds(x, y):
+		return
+	var id := get_tile(x, y)
+	if not Tiles.is_seed(id):
+		return
+	var key := "%d,%d" % [x, y]
+	var mult := FERTILIZER_FACTOR if boosted else 1.0
+	var now := Time.get_ticks_msec() / 1000.0
+	grow_boost[key] = mult
+	plant_times[key] = now - (Tiles.grow_seconds(id) * mult - maxf(ready_in_ms, 0.0) / 1000.0)
+	queue_redraw()
+
 func try_fertilize(x: int, y: int) -> bool:
 	## Halves remaining grow time once per plant (stacks at most to 0.5).
 	if not in_bounds(x, y):
@@ -317,7 +334,7 @@ func _tick_growth() -> void:
 		if base < 0.0:
 			continue
 		var mult: float = float(grow_boost.get(key, 1.0))
-		var wnode := get_parent().get_node_or_null("Weather") if get_parent() else null
+		var wnode := get_parent().get_node_or_null("Weather") if get_parent() and not online_growth else null
 		if wnode and wnode.has_method("growth_multiplier"):
 			mult *= float(wnode.growth_multiplier())
 		var need := base * mult

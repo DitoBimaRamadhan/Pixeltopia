@@ -83,7 +83,7 @@ func _setup_multiplayer() -> void:
 	net.connected.connect(_on_net_connected)
 	net.disconnected.connect(func ():
 		if hud.has_method("set_mp_status"):
-			hud.set_mp_status("Login di perangkat lain" if net.was_kicked else "Disconnected")
+			hud.set_mp_status("Perlu update" if net.update_url != "" else ("Login di perangkat lain" if net.was_kicked else "Disconnected"))
 	)
 	net.world_state.connect(_on_world_state)
 	net.tile_update.connect(_on_tile_update)
@@ -93,6 +93,18 @@ func _setup_multiplayer() -> void:
 	net.chat_message.connect(_on_chat)
 	net.profile_loaded.connect(_on_profile_loaded)
 	net.trade_event.connect(_on_trade)
+	net.inv_state.connect(_on_inv_state)
+	net.inv_result.connect(_on_inv_result)
+	net.reward.connect(_on_reward)
+	net.plant_update.connect(_on_plant_update)
+	net.quest_state.connect(_on_quest_state)
+	net.update_required.connect(func (m, url):
+		if hud.has_method("show_update_required"):
+			hud.show_update_required(m, url)
+		if hud.has_method("set_mp_status"):
+			hud.set_mp_status("Perlu update")
+	)
+	world.online_growth = true
 	net.net_error.connect(func (m):
 		if hud.has_method("show_status"):
 			hud.show_status(m)
@@ -148,6 +160,44 @@ func _on_net_connected() -> void:
 	net.join_world(wname, true)
 	net.sync_inventory(inv)
 
+## v1.7: the server's wallet (account or guest session kit) is the source of truth online.
+func _on_inv_state(data: Dictionary) -> void:
+	var first: bool = not inv.server_mode
+	inv.apply_server_state(data.get("items", {}), int(data.get("gems", 0)))
+	if first:
+		net.request_quest_state()
+
+func _on_inv_result(data: Dictionary) -> void:
+	if hud.has_method("on_inv_result"):
+		hud.on_inv_result(data)
+	if not bool(data.get("ok", false)):
+		return
+	match str(data.get("op", "")):
+		"splice":
+			notify_spliced()
+			net.request_quest_state()
+		"quest_claim":
+			quests.mark_claimed(str(data.get("qid", "")))
+			net.request_quest_state()
+
+func _on_reward(data: Dictionary) -> void:
+	if str(data.get("world", net.current_world)) != net.current_world:
+		return
+	if player.has_method("show_server_reward"):
+		player.show_server_reward(data)
+	if bool(data.get("harvest", false)):
+		_on_crops_harvested(1)
+		net.request_quest_state()
+
+func _on_plant_update(data: Dictionary) -> void:
+	world.set_plant_ready_in(int(data.get("x", -1)), int(data.get("y", -1)), float(data.get("readyIn", 0)), bool(data.get("boosted", false)))
+	if str(data.get("by", "")) == net.my_id and player.has_method("_spawn_float"):
+		player._spawn_float("Fertilized!", Color(0.6, 0.95, 0.4))
+
+func _on_quest_state(data: Dictionary) -> void:
+	if data.has("progress"):
+		quests.apply_server_state(data.get("progress", {}), data.get("claimed", []))
+
 func _on_world_state(data: Dictionary) -> void:
 	var grid: Array = data.get("grid", [])
 	if grid.size() == world.W * world.H:
@@ -156,6 +206,12 @@ func _on_world_state(data: Dictionary) -> void:
 		world.plant_times.clear()
 		world.grow_boost.clear()
 		world.drops.clear()
+		# Seed grow times from the server (index -> ms until ready); seeds without one are mature.
+		var plants: Dictionary = data.get("plants", {}) if typeof(data.get("plants", {})) == TYPE_DICTIONARY else {}
+		if net.server_inv or not plants.is_empty():
+			for i in range(grid.size()):
+				if Tiles.is_seed(world.grid[i]):
+					world.set_plant_ready_in(i % world.W, i / world.W, float(plants.get(str(i), 0)))
 		if data.has("spawn"):
 			var sp: Dictionary = data["spawn"]
 			world.spawn_tile = Vector2i(int(sp.get("x", 32)), int(sp.get("y", 10)))
@@ -183,6 +239,10 @@ func _on_tile_update(data: Dictionary) -> void:
 	var id := int(data.get("id", 0))
 	if world.in_bounds(x, y):
 		world.set_tile(x, y, id)
+		if data.has("readyIn"):
+			world.set_plant_ready_in(x, y, float(data.get("readyIn", 0)))
+		if Tiles.is_seed(id) and str(data.get("by", "")) == net.my_id and net.server_inv:
+			net.request_quest_state()
 	var lock_n := str(data.get("lockOwnerName", "") or "")
 	if hud.has_method("set_mp_status") and net:
 		var lock := (" 🔒 %s" % lock_n) if lock_n != "" else ""
@@ -200,13 +260,16 @@ func _on_trade(data: Dictionary) -> void:
 	_trade = data
 	if hud.has_method("on_trade_event"):
 		hud.on_trade_event(data)
-	# Apply inventory deltas on completed
+	# Apply inventory deltas on completed (pre-v1.7 servers only; with serverInv the new
+	# wallet arrives as an `inv` message instead).
 	if str(data.get("event", "")) == "completed" and net:
 		progress.report_trade()
 		achievements.report("trade_done", 1)
 		var _sfx = get_node_or_null("/root/Sfx")
 		if _sfx and _sfx.has_method("play_trade"):
 			_sfx.play_trade()
+		if bool(data.get("serverInv", false)) or net.server_inv:
+			return
 		var take: Dictionary = data.get("take", {}).get(net.my_id, {})
 		var give: Dictionary = data.get("give", {}).get(net.my_id, {})
 		for it in take.get("items", []):
@@ -306,6 +369,10 @@ func save_game() -> void:
 	hud.show_status("Saved (v6).")
 
 func load_game() -> void:
+	if net != null:
+		## v1.7: online the server owns the world + inventory; a local save cannot be loaded over it.
+		hud.show_status("Load hanya di mode offline.")
+		return
 	if not FileAccess.file_exists(SAVE_PATH):
 		hud.show_status("No save file yet.")
 		return

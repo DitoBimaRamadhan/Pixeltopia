@@ -4,6 +4,10 @@ class_name AuthApiClient
 
 signal request_finished(ok: bool, data: Dictionary, error: String)
 
+## Protocol version of this build (v1.7.0 = 2: server-authoritative inventory). Servers with
+## MIN_PROTO above this answer 426 {update: true, url}.
+const CLIENT_PROTO := 2
+
 var _http: HTTPRequest
 var _busy: bool = false
 
@@ -13,10 +17,10 @@ func attach(http: HTTPRequest) -> void:
 		_http.request_completed.connect(_on_completed)
 
 func register(base: String, username: String, password: String) -> void:
-	_post(base + "/register", {"username": username, "password": password})
+	_post(base + "/register", {"username": username, "password": password, "proto": CLIENT_PROTO})
 
 func login(base: String, username: String, password: String) -> void:
-	_post(base + "/login", {"username": username, "password": password})
+	_post(base + "/login", {"username": username, "password": password, "proto": CLIENT_PROTO})
 
 func list_servers(base: String, token: String = "") -> void:
 	if _http == null:

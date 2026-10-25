@@ -6,6 +6,7 @@ func _init() -> void:
 	var failed := 0
 	failed += _check_preloads()
 	failed += _check_inventory_logic()
+	failed += _check_server_inventory()
 	failed += _check_splice()
 	failed += _check_items_world_lock()
 	failed += _check_scenes_exist()
@@ -85,6 +86,32 @@ func _check_inventory_logic() -> int:
 	print("OK inventory logic gems=", n.gems, " slots=", n.slots.size())
 	n.free()
 	return 0
+
+## v1.7: server wallet totals applied over the local slot layout.
+func _check_server_inventory() -> int:
+	var Inv = load("res://scripts/inventory.gd")
+	var n: Node = Inv.new()
+	n._ready()
+	var dirt_slot: int = n.slots.find(Tiles.Id.DIRT)
+	n.apply_server_state({str(Tiles.Id.DIRT): 450, str(Tiles.Id.PLANK): 3}, 7)
+	var bad := 0
+	if n.count_of(Tiles.Id.DIRT) != 450 or n.count_of(Tiles.Id.PLANK) != 3 or n.count_of(Tiles.Id.STONE) != 0:
+		print("FAIL server inv totals dirt=", n.count_of(Tiles.Id.DIRT), " plank=", n.count_of(Tiles.Id.PLANK))
+		bad += 1
+	if n.slots[dirt_slot] != Tiles.Id.DIRT:
+		print("FAIL server inv layout moved dirt")
+		bad += 1
+	if n.gems != 7 or not n.server_mode or n.slots.size() != n.counts.size():
+		print("FAIL server inv gems/mode")
+		bad += 1
+	for i in range(1, n.slots.size()):
+		if n.counts[i] > n.MAX_STACK or (n.counts[i] <= 0 and n.slots[i] >= 0):
+			print("FAIL server inv stack ", i)
+			bad += 1
+	if bad == 0:
+		print("OK server inventory apply")
+	n.free()
+	return bad
 
 func _check_splice() -> int:
 	var Inv = load("res://scripts/inventory.gd")

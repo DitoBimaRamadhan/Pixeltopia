@@ -352,7 +352,19 @@ func _rebuild_craft_list() -> void:
 		row.add_child(btn)
 		craft_list.add_child(row)
 
+## v1.7: online the server validates + applies craft/splice/shop/quest claims atomically.
+func _server_inv() -> bool:
+	return _net != null and _net.server_inv and _net.online
+
 func _craft(recipe: Dictionary) -> void:
+	if _server_inv():
+		if not inv.can_afford(recipe.get("ingredients", [])):
+			craft_status.text = "Not enough materials."
+			Sfx.play_ui()
+			return
+		_net.send_inv_request("craft", {"recipe": str(recipe["id"])})
+		craft_status.text = "Crafting %s…" % str(recipe["name"])
+		return
 	if inv.try_craft(recipe):
 		craft_status.text = "Crafted %s ×%d!" % [str(recipe["name"]), int(recipe.get("result_count", 1))]
 		Sfx.play_craft()
@@ -881,6 +893,14 @@ func _rebuild_shop() -> void:
 		_shop_list.add_child(row)
 
 func _shop_buy(id: int, price: int) -> void:
+	if _server_inv():
+		if inv.gems < price:
+			_shop_status.text = "Not enough gems."
+			Sfx.play_ui()
+			return
+		_net.send_inv_request("shop_buy", {"id": id, "n": 1})
+		_shop_status.text = "Buying %s…" % Items.display_name(id)
+		return
 	if not inv.spend_gems(price):
 		_shop_status.text = "Not enough gems."
 		Sfx.play_ui()
@@ -938,6 +958,13 @@ func _rebuild_quest() -> void:
 		var claim := UiCircle.make_button("Claim", UiCircle.COMPACT_SIZE, Color(0.85, 0.65, 0.2))
 		claim.disabled = not ql.is_complete(qid) or ql.is_claimed(qid)
 		claim.pressed.connect(func() -> void:
+			if _server_inv():
+				if _net.is_guest:
+					_quest_status.text = "Login dulu untuk klaim hadiah quest."
+					return
+				_net.send_inv_request("quest_claim", {"qid": qid})
+				_quest_status.text = "Claiming…"
+				return
 			if ql.claim(qid, inv):
 				_quest_status.text = "Reward claimed!"
 				Sfx.play_craft()
@@ -1110,6 +1137,14 @@ func _splice_pick(seed_id: int) -> void:
 	_rebuild_splice()
 
 func _do_splice() -> void:
+	if _server_inv():
+		if _splice_a < 0 or _splice_b < 0 or _splice_a == _splice_b:
+			_splice_status.text = "Pick two different seeds."
+			Sfx.play_ui()
+			return
+		_net.send_inv_request("splice", {"a": _splice_a, "b": _splice_b})
+		_splice_status.text = "Splicing…"
+		return
 	var out: Dictionary = inv.try_splice(_splice_a, _splice_b)
 	if bool(out.get("ok", false)):
 		var rid: int = int(out["result"])
@@ -1125,6 +1160,89 @@ func _do_splice() -> void:
 		_splice_status.text = str(out.get("error", "Splice failed."))
 		Sfx.play_ui()
 	_rebuild_splice()
+
+## Server answer to a craft / splice / shop / quest request (the new wallet comes as `inv`).
+func on_inv_result(data: Dictionary) -> void:
+	var ok := bool(data.get("ok", false))
+	var err := str(data.get("error", "Gagal."))
+	var res: Dictionary = data.get("result", {}) if typeof(data.get("result", {})) == TYPE_DICTIONARY else {}
+	match str(data.get("op", "")):
+		"craft":
+			craft_status.text = "Crafted!" if ok else err
+			if ok:
+				Sfx.play_craft()
+			if craft_open:
+				_rebuild_craft_list()
+		"shop_buy", "shop_sell":
+			if _shop_status:
+				_shop_status.text = "Done!" if ok else err
+			if ok:
+				Sfx.play_craft()
+			if _shop_list:
+				_rebuild_shop()
+		"splice":
+			if ok:
+				var rid := int(res.get("id", res.get("result", -1)))
+				_splice_status.text = ("Discovered %s [%s]! Added to backpack." % [Items.display_name(rid), Items.rarity_name(rid)]) if rid >= 0 else "Spliced!"
+				Sfx.play_craft()
+				_splice_a = -1
+				_splice_b = -1
+				_splice_pick_slot = 0
+			else:
+				_splice_status.text = err
+			_rebuild_splice()
+		"quest_claim":
+			if _quest_status:
+				_quest_status.text = "Reward claimed!" if ok else err
+			if ok:
+				Sfx.play_craft()
+			if _quest_list:
+				_rebuild_quest()
+	if not ok:
+		Sfx.play_ui()
+
+var _update_root: ColorRect = null
+## Server refused this (old) build: explain and link to the new APK on GitHub Releases.
+func show_update_required(message: String, url: String) -> void:
+	show_status(message)
+	if _update_root != null and is_instance_valid(_update_root):
+		_update_root.visible = true
+		return
+	_update_root = ColorRect.new()
+	_update_root.color = Color(0, 0, 0, 0.75)
+	_update_root.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_update_root.mouse_filter = Control.MOUSE_FILTER_STOP
+	$Root.add_child(_update_root)
+	var panel := PanelContainer.new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	panel.custom_minimum_size = Vector2(420, 200)
+	panel.position = Vector2(-210, -100)
+	_update_root.add_child(panel)
+	var vb := VBoxContainer.new()
+	vb.add_theme_constant_override("separation", 10)
+	panel.add_child(vb)
+	var t := Label.new()
+	t.text = "Update diperlukan"
+	t.add_theme_font_size_override("font_size", 20)
+	t.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vb.add_child(t)
+	var l := Label.new()
+	l.text = message
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size = Vector2(380, 0)
+	vb.add_child(l)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	vb.add_child(row)
+	if url != "":
+		var go := Button.new()
+		go.text = "Download update"
+		go.pressed.connect(func() -> void: OS.shell_open(url))
+		row.add_child(go)
+	var close := Button.new()
+	close.text = "Tutup"
+	close.pressed.connect(func() -> void: _update_root.visible = false)
+	row.add_child(close)
 
 func _pause_btn(name: String) -> Button:
 	var p2 := "Root/Pause/Panel/CircleActions/%s" % name
