@@ -26,6 +26,7 @@ var current_world: String = ""
 var lock_owner_id: String = ""
 var lock_owner_name: String = ""
 var online: bool = false
+var was_kicked: bool = false
 var _move_cd: float = 0.0
 var _inv_cd: float = 0.0
 
@@ -127,6 +128,16 @@ func _handle(raw: String) -> void:
 		"left_world":
 			current_world = ""
 			left_world.emit()
+		"world_lock":
+			# Lock owner changed without a tile change (multi-server correction).
+			lock_owner_id = str(msg.get("lockOwnerId", "") or "")
+			lock_owner_name = str(msg.get("lockOwnerName", "") or "")
+			tile_update.emit({"x": -1, "y": -1, "id": 0, "lockOwnerId": msg.get("lockOwnerId", null), "lockOwnerName": msg.get("lockOwnerName", null)})
+		"kicked":
+			# Same account logged in elsewhere: show why, close cleanly, do not reconnect.
+			was_kicked = true
+			net_error.emit(str(msg.get("error", "Akun ini login dari perangkat lain.")))
+			disconnect_socket()
 
 func send_dict(d: Dictionary) -> void:
 	if not online:

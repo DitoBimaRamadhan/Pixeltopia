@@ -83,7 +83,7 @@ func _setup_multiplayer() -> void:
 	net.connected.connect(_on_net_connected)
 	net.disconnected.connect(func ():
 		if hud.has_method("set_mp_status"):
-			hud.set_mp_status("Disconnected")
+			hud.set_mp_status("Login di perangkat lain" if net.was_kicked else "Disconnected")
 	)
 	net.world_state.connect(_on_world_state)
 	net.tile_update.connect(_on_tile_update)

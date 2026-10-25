@@ -13,11 +13,12 @@ const path = require('path');
 const { WebSocketServer } = require('ws');
 const { createAuth } = require('./lib/auth');
 const { createWorldManager } = require('./lib/world_manager');
-const { createTradeManager } = require('./lib/trade');
+const { createWorldSync } = require('./lib/world_sync');
 const { createStore } = require('./lib/store');
 
 // Load server/.env (gitignored) without overriding real env vars from the host.
 (function loadDotEnv() {
+  if (process.env.NO_DOTENV === '1') return; // tests: never pick up server/.env (production credentials)
   const f = path.join(__dirname, '.env');
   if (!fs.existsSync(f)) return;
   for (const line of fs.readFileSync(f, 'utf8').split(/\r?\n/)) {
@@ -44,11 +45,16 @@ const TOKEN_TTL_SEC = 60 * 60 * 24 * 14;
 const USERNAME_MIN = 3;
 const USERNAME_MAX = 10;
 const USERNAME_LEN_ERROR = `Username ${USERNAME_MIN}–${USERNAME_MAX} karakter.`;
+// Multi-instance sync (Deno Deploy runs several isolates in several regions at once).
+const INSTANCE_ID = process.env.INSTANCE_ID || `${process.env.DENO_REGION || 'local'}-${crypto.randomBytes(4).toString('hex')}`;
+const SYNC_POLL_MS = Math.max(50, Number(process.env.SYNC_POLL_MS || 150));
+const DUP_LOGIN_SETTLE_MS = Math.max(0, Number(process.env.DUP_LOGIN_SETTLE_MS || 1500));
+const MAINTENANCE_MS = 5 * 60 * 1000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const store = createStore({ dataDir: DATA_DIR });
 const auth = createAuth({ jwtSecret: JWT_SECRET });
 const worlds = createWorldManager();
-const trades = createTradeManager();
 
 const shards = [];
 for (let i = 0; i < SHARD_COUNT; i++) {
@@ -151,7 +157,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/health') {
       return sendJson(res, 200, {
         ok: true, mode: 'shared-process', storage: store.kind, shards: shards.length,
-        worlds: worlds.listWorlds().length, connections: totalConnections(),
+        worlds: worlds.allWorlds().length, connections: totalConnections(), instance: INSTANCE_ID, sync: sync.stats,
         capacity: SHARD_COUNT * MAX_CONN_PER_SHARD, tickHz: TICK_HZ,
         public: publicEndpoint(req).httpBase, runtime: typeof Deno !== 'undefined' ? 'deno' : 'node',
       });
@@ -159,7 +165,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/stats') {
       return sendJson(res, 200, {
         connections: totalConnections(), capacity: SHARD_COUNT * MAX_CONN_PER_SHARD,
-        shards: serverListPayload(req), worlds: worlds.listWorlds(),
+        shards: serverListPayload(req), worlds: await listWorldsShared(), instance: INSTANCE_ID,
         memoryMB: Math.round(process.memoryUsage().rss / 1024 / 1024),
         tickHz: TICK_HZ, mode: 'shared-process', storage: store.kind,
       });
@@ -171,7 +177,7 @@ const server = http.createServer(async (req, res) => {
       });
     }
     if (req.method === 'GET' && url.pathname === '/worlds') {
-      return sendJson(res, 200, { worlds: worlds.listWorlds() });
+      return sendJson(res, 200, { worlds: await listWorldsShared() });
     }
     if (req.method === 'POST' && url.pathname === '/register') {
       const body = await readBody(req);
@@ -217,33 +223,7 @@ async function issueToken(userId, username) {
   return token;
 }
 
-// ---------------------------------------------------------------- persistence
-// One in-flight save per world. Edits made while a save is running re-mark the world dirty;
-// the running save loops until clean, and callers (e.g. shutdown) await that same promise,
-// so the newest grid is never skipped.
-const savingWorlds = new Map();
-function saveWorld(world, reason) {
-  if (!world) return Promise.resolve();
-  if (savingWorlds.has(world.name)) return savingWorlds.get(world.name);
-  if (!world.dirty) return Promise.resolve();
-  const p = (async () => {
-    while (world.dirty) {
-      world.dirty = false;
-      try {
-        await store.saveWorld(world);
-      } catch (e) {
-        world.dirty = true;
-        console.error(`[store] save world ${world.name} (${reason}) failed:`, e.message);
-        break;
-      }
-    }
-  })().finally(() => { savingWorlds.delete(world.name); });
-  savingWorlds.set(world.name, p);
-  return p;
-}
-async function flushAllWorlds(reason) {
-  await Promise.all(worlds.allWorlds().filter((w) => w.dirty || savingWorlds.has(w.name)).map((w) => saveWorld(w, reason)));
-}
+// ---------------------------------------------------------------- persistence & multi-instance sync
 function sanitizeProfile(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const out = {};
@@ -256,6 +236,8 @@ function sanitizeProfile(raw) {
 }
 // Serialize profile writes per player: concurrent UPSERTs could land out of order and
 // overwrite a newer profile with an older one. A running save picks up the latest pending one.
+// Each profile carries `rev` = when the server received it; the DB rejects anything older than
+// what it already has, so a late save from an old/kicked connection on another instance is harmless.
 function saveProfile(player) {
   if (!player.authed) return Promise.resolve();
   if (player.savingProfile) return player.savingProfile;
@@ -263,9 +245,13 @@ function saveProfile(player) {
   player.savingProfile = (async () => {
     while (player.pendingProfile) {
       const data = player.pendingProfile;
+      const rev = player.pendingRev || Date.now();
       player.pendingProfile = null;
-      try { await store.saveProfile(player.id, data); } catch (e) {
-        if (!player.pendingProfile) player.pendingProfile = data;
+      try {
+        const ok = await store.saveProfile(player.id, data, rev);
+        if (ok === false) console.warn(`[store] stale profile save for ${player.username} ignored`);
+      } catch (e) {
+        if (!player.pendingProfile) { player.pendingProfile = data; player.pendingRev = rev; }
         console.error(`[store] save profile ${player.username} failed:`, e.message);
         break;
       }
@@ -292,46 +278,14 @@ function broadcastWorld(world, obj, exceptId) {
     safeSend(p.ws, obj);
   }
 }
-function worldSnapshot(world) {
-  return {
-    t: 'world_state', name: world.name, w: worlds.W, h: worlds.H, seed: world.seed,
-    grid: worlds.gridArray(world), spawn: world.spawn,
-    lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
-    players: [...world.players.values()].map((p) => ({ i: p.id, u: p.username, x: p.x, y: p.y })),
-  };
+function localPlayers() {
+  const out = [];
+  for (const s of shards) for (const ws of s.connections) if (ws._player) out.push(ws._player);
+  return out;
 }
-function leaveCurrentWorld(player) {
-  if (!player.worldName) return;
-  const w = worlds.getWorld(player.worldName);
-  if (w) {
-    worlds.leave(w, player);
-    broadcastWorld(w, { t: 'player_left', id: player.id, username: player.username });
-    saveWorld(w, w.players.size === 0 ? 'empty' : 'leave');
-  }
-  player.worldName = null;
-}
-function joinNamedWorld(player, rawName, createIfMissing) {
-  const name = worlds.normalizeWorldName(rawName) || 'START';
-  let w = worlds.getWorld(name);
-  if (!w) {
-    if (!createIfMissing) return { error: 'Dunia tidak ditemukan. Buat dulu atau cek nama.' };
-    const created = worlds.createWorld(name, player.id);
-    if (created.error && !created.world) return { error: created.error };
-    w = created.world || worlds.getWorld(name);
-    if (created.created) saveWorld(w, 'create');
-  }
-  leaveCurrentWorld(player);
-  worlds.join(w, player);
-  safeSend(player.ws, worldSnapshot(w));
-  broadcastWorld(w, { t: 'player_join', player: { i: player.id, u: player.username, x: player.x, y: player.y } }, player.id);
-  return { world: w };
-}
-function findPlayerById(id) {
-  for (const s of shards) for (const ws of s.connections) {
-    if (ws._player && ws._player.id === id) return ws._player;
-  }
-  return null;
-}
+function localPlayersById(id) { return localPlayers().filter((p) => p.id === id && !p.kicked); }
+function findPlayerById(id) { return localPlayersById(id)[0] || null; }
+
 function canFulfill(player, offer) {
   if ((player.inv.gems | 0) < (offer.gems | 0)) return false;
   for (const it of offer.items || []) if ((player.inv.items[it.id] | 0) < (it.n | 0)) return false;
@@ -345,15 +299,212 @@ function applyOffer(player, offer, sign) {
     else player.inv.items[it.id] = next;
   }
 }
-function notifyTrade(session, event) {
-  const pub = trades.publicSession(session);
-  const a = findPlayerById(session.a);
-  const b = findPlayerById(session.b);
-  if (a) safeSend(a.ws, { t: 'trade', event, trade: pub });
-  if (b) safeSend(b.ws, { t: 'trade', event, trade: pub });
+function deliverTradePayload(p, payload) {
+  if (payload && payload.t === 'trade' && payload.event === 'completed') {
+    // Keep the server's view of this player's inventory in step with the client (as before).
+    applyOffer(p, (payload.take || {})[p.id] || { items: [], gems: 0 }, -1);
+    applyOffer(p, (payload.give || {})[p.id] || { items: [], gems: 0 }, +1);
+  }
+  safeSend(p.ws, payload);
 }
-function broadcastAllGateways(obj) {
+/** Deliver to a player on this instance (used for messages relayed through the world log). */
+function deliverToPlayer(id, obj) {
+  for (const p of localPlayersById(id)) {
+    if (obj && obj.t === 'trade') deliverTradePayload(p, obj);
+    else safeSend(p.ws, obj);
+  }
+}
+
+const sync = createWorldSync({
+  store, worlds, instanceId: INSTANCE_ID, broadcastWorld, deliverToPlayer, localPlayers,
+  kickPlayer: (p) => kickPlayer(p), pollMs: SYNC_POLL_MS,
+});
+
+// World list (all instances): DB summary with live player counts from presence, cached briefly.
+let worldListCache = { at: 0, list: null, p: null };
+function withLocalCounts(list) {
+  // Our own players (and the remote ones we already see) count immediately, even if the cached
+  // presence summary is a moment old.
+  return list.map((w) => {
+    const local = worlds.getWorld(w.name);
+    if (!local || !local.players.size) return w;
+    return { ...w, players: Math.max(w.players, local.players.size + (local.remote ? local.remote.size : 0)) };
+  });
+}
+async function listWorldsShared(maxAgeMs = 2000) {
+  if (worldListCache.list && Date.now() - worldListCache.at < maxAgeMs) return withLocalCounts(worldListCache.list);
+  if (!worldListCache.p) {
+    worldListCache.p = store.listWorldSummaries({ presenceMaxAgeMs: 5000 })
+      .then((list) => { worldListCache = { at: Date.now(), list, p: null }; return list; })
+      .catch((e) => { console.warn('[store] listWorldSummaries failed', e.message); worldListCache.p = null; return worlds.listWorlds(); });
+  }
+  return withLocalCounts(await worldListCache.p);
+}
+
+function worldSnapshot(world) {
+  const players = [...world.players.values()].map((p) => ({ i: p.id, u: p.username, x: p.x, y: p.y }));
+  for (const r of sync.remotePlayers(world)) players.push({ i: r.i, u: r.u, x: r.x, y: r.y });
+  return {
+    t: 'world_state', name: world.name, w: worlds.W, h: worlds.H, seed: world.seed,
+    grid: worlds.gridArray(world), spawn: world.spawn,
+    lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
+    players,
+  };
+}
+function leaveCurrentWorld(player, { cancelTrade = false } = {}) {
+  if (!player.worldName) return;
+  const w = worlds.getWorld(player.worldName);
+  if (w) {
+    const wasMember = w.players.get(player.id) === player;
+    worlds.leave(w, player);
+    if (wasMember) broadcastWorld(w, { t: 'player_left', id: player.id, username: player.username });
+    w.lastActive = Date.now();
+    sync.markPresenceDirty(w);
+  }
+  player.worldName = null;
+  if (cancelTrade) cancelTradeFor(player).catch((e) => console.warn('[trade] cancel on leave failed', e.message));
+}
+async function joinNamedWorld(player, rawName, createIfMissing) {
+  const name = worlds.normalizeWorldName(rawName) || 'START';
+  const res = await sync.ensureWorld(name, { create: createIfMissing, creatorId: player.id });
+  if (res.error) return res;
+  if (player.closed || player.kicked) return { error: 'closed' };
+  const w = res.world;
+  leaveCurrentWorld(player, { cancelTrade: player.worldName && player.worldName !== w.name });
+  worlds.join(w, player);
+  w.lastActive = Date.now();
+  sync.markPresenceDirty(w);
+  safeSend(player.ws, worldSnapshot(w));
+  broadcastWorld(w, { t: 'player_join', player: { i: player.id, u: player.username, x: player.x, y: player.y } }, player.id);
+  if (res.created) worldListCache.at = 0;
+  return { world: w, created: res.created };
+}
+async function broadcastAllGateways(obj) {
   for (const s of shards) for (const ws of s.connections) safeSend(ws, obj);
+}
+
+/** Newest connection of an account wins; older ones (here or on another instance) are closed. */
+function kickPlayer(p) {
+  if (p.kicked) return p.savingProfile || Promise.resolve();
+  p.kicked = true;
+  safeSend(p.ws, { t: 'kicked', reason: 'duplicate_login', error: 'Akun ini login dari perangkat/sesi lain.' });
+  const saving = saveProfile(p);
+  setTimeout(() => { try { p.ws.close(4001, 'duplicate login'); } catch { /* ignore */ } }, 100);
+  console.log(`[session] kicked older connection of ${p.username}`);
+  return saving;
+}
+
+// ---------------------------------------------------------------- trades (shared via DB)
+const TRADE_CONFLICT = 'Trade berubah, coba lagi.';
+const emptyOffer = () => ({ items: [], gems: 0 });
+function tradePublic(t) {
+  if (!t) return null;
+  return { id: t.id, a: t.a, b: t.b, aName: t.aName, bName: t.bName, status: t.status, offers: t.offers, ready: t.ready, worldName: t.worldName };
+}
+/** Send to both parties: directly if connected here, otherwise through the trade world's log. */
+function notifyTradeParties(t, payloadFor) {
+  for (const id of [t.a, t.b]) {
+    const payload = typeof payloadFor === 'function' ? payloadFor(id) : payloadFor;
+    if (!payload) continue;
+    const locals = localPlayersById(id);
+    if (locals.length) for (const p of locals) deliverTradePayload(p, payload);
+    else if (t.worldName) sync.publishToPlayer(t.worldName, id, payload);
+  }
+}
+async function cancelTradeFor(player) {
+  for (let i = 0; i < 4; i++) {
+    const t = await store.tradeActiveFor(player.id);
+    if (!t) return null;
+    const u = await store.tradeUpdate(t.id, t.version, { status: 'cancelled' });
+    if (!u) continue;
+    notifyTradeParties(u, { t: 'trade', event: 'cancelled', trade: tradePublic(u) });
+    return u;
+  }
+  return null;
+}
+async function handleTrade(player, ws, world, t, msg) {
+  const err = (error) => safeSend(ws, { t: 'error', error });
+  if (t === 'trade_request') {
+    if (!world) return err('Join dunia dulu.');
+    const toId = String(msg.to || '');
+    const target = world.players.get(toId) || (world.remote && world.remote.get(toId));
+    if (!target) return err('Pemain tidak di dunia ini.');
+    if (!toId || toId === player.id) return err('Target trade tidak valid.');
+    const mine = await store.tradeActiveFor(player.id);
+    if (mine && mine.status === 'open') return err('Kamu sudah dalam trade.');
+    const created = await store.tradeCreate({
+      id: crypto.randomBytes(6).toString('hex'), a: player.id, b: toId, aName: player.username, bName: null,
+      worldName: world.name, offers: { [player.id]: emptyOffer(), [toId]: emptyOffer() }, ready: { [player.id]: false, [toId]: false },
+    });
+    if (!created) return err('Trade sudah berjalan.');
+    const pub = tradePublic(created);
+    notifyTradeParties(created, (id) => ({ t: 'trade', event: id === player.id ? 'requested' : 'incoming', trade: pub }));
+    return;
+  }
+  if (t === 'trade_cancel') {
+    const u = await cancelTradeFor(player);
+    if (!u) return err('Tidak ada trade.');
+    return;
+  }
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (t === 'trade_accept') {
+      let s = msg.id ? await store.tradeGet(msg.id) : null;
+      if (!s || (s.status !== 'pending' && s.status !== 'open')) s = await store.tradeActiveFor(player.id);
+      if (!s) return err('Trade tidak ditemukan.');
+      if (s.b !== player.id && s.a !== player.id) return err('Bukan trade kamu.');
+      if (s.status === 'pending' && player.id === s.b) {
+        const u = await store.tradeUpdate(s.id, s.version, { status: 'open', bName: player.username });
+        if (!u) continue;
+        s = u;
+      }
+      notifyTradeParties(s, { t: 'trade', event: 'open', trade: tradePublic(s) });
+      return;
+    }
+    const s = await store.tradeActiveFor(player.id);
+    if (!s || s.status !== 'open') return err('Tidak ada trade terbuka.');
+    if (t === 'trade_offer') {
+      const clean = [];
+      if (Array.isArray(msg.items)) {
+        for (const it of msg.items.slice(0, 8)) {
+          const id = it.id | 0; const n = Math.max(1, Math.min(999, it.n | 0));
+          if (id >= 0) clean.push({ id, n });
+        }
+      }
+      const offers = { ...s.offers, [player.id]: { items: clean, gems: Math.max(0, msg.gems | 0) } };
+      const u = await store.tradeUpdate(s.id, s.version, { offers, ready: { [s.a]: false, [s.b]: false } });
+      if (!u) continue;
+      notifyTradeParties(u, { t: 'trade', event: 'offer', trade: tradePublic(u) });
+      return;
+    }
+    if (t === 'trade_ready') {
+      const isReady = msg.ready !== false;
+      if (isReady && !canFulfill(player, s.offers[player.id] || emptyOffer())) {
+        const u = await store.tradeUpdate(s.id, s.version, { ready: { [s.a]: false, [s.b]: false } });
+        if (!u) continue;
+        notifyTradeParties(u, { t: 'trade', event: 'failed', error: 'Inventori tidak cukup.', trade: tradePublic(u) });
+        return;
+      }
+      const u = await store.tradeUpdate(s.id, s.version, { ready: { ...s.ready, [player.id]: isReady } });
+      if (!u) continue;
+      notifyTradeParties(u, { t: 'trade', event: 'ready', trade: tradePublic(u) });
+      if (u.ready[u.a] && u.ready[u.b]) {
+        // Exactly one caller can flip open → done, so items are handed over once.
+        const done = await store.tradeComplete(u.id, u.version);
+        if (!done) return;
+        const offerA = done.offers[done.a] || emptyOffer();
+        const offerB = done.offers[done.b] || emptyOffer();
+        store.logTrade({ a: done.a, b: done.b, world: done.worldName, offerA, offerB })
+          .catch((e) => console.warn('[store] logTrade failed', e.message));
+        notifyTradeParties(done, {
+          t: 'trade', event: 'completed', trade: tradePublic(done),
+          give: { [done.a]: offerB, [done.b]: offerA }, take: { [done.a]: offerA, [done.b]: offerB },
+        });
+      }
+      return;
+    }
+    return;
+  }
+  return err(TRADE_CONFLICT);
 }
 
 // Server-side heartbeat: keeps proxies (Cloudflare ~100s idle, Deno Deploy idle shutdown)
@@ -382,26 +533,43 @@ wss.on('connection', (ws, req) => {
     id: authPayload?.sub || crypto.randomBytes(4).toString('hex'),
     username: authPayload?.username || `guest-${Math.floor(Math.random() * 9999)}`,
     x: 32, y: 10, ws, shard, lastSeq: 0, worldName: null,
-    inv: { items: {}, gems: 0 }, authed: !!authPayload?.sub, pendingProfile: null,
+    inv: { items: {}, gems: 0 }, authed: !!authPayload?.sub, pendingProfile: null, pendingRev: 0,
+    connId: crypto.randomBytes(6).toString('hex'), kicked: false, closed: false,
   };
   ws._player = player;
   shard.connections.add(ws);
   shard.players = shard.connections.size;
 
-  const sendWelcome = (profile) => safeSend(ws, {
+  const sendWelcome = async (profile) => safeSend(ws, {
     t: 'welcome', mode: 'shared-process', shard: shard.id, storage: store.kind,
     you: { id: player.id, username: player.username, x: player.x, y: player.y, guest: !player.authed },
-    tickHz: TICK_HZ, capacity: SHARD_COUNT * MAX_CONN_PER_SHARD, worlds: worlds.listWorlds(),
+    tickHz: TICK_HZ, capacity: SHARD_COUNT * MAX_CONN_PER_SHARD, worlds: await listWorldsShared(),
     profile: profile || null,
   });
-  if (player.authed) {
-    store.getProfile(player.id).then((p) => sendWelcome(p), (e) => {
-      console.warn('[store] getProfile failed', e.message);
-      sendWelcome(null);
-    });
-  } else sendWelcome(null);
+  // Everything this connection sends is handled strictly in order, after the welcome.
+  player.chain = (async () => {
+    if (!player.authed) return sendWelcome(null);
+    // Kick older connections of this account (same instance now; other instances on their next check),
+    // and let them flush their profile before we read it.
+    const waits = localPlayers().filter((o) => o !== player && o.id === player.id).map((o) => kickPlayer(o));
+    let claim = null;
+    try { claim = await store.claimSession(player.id, player.connId, INSTANCE_ID); } catch (e) { console.warn('[store] claimSession failed', e.message); }
+    if (claim && claim.prevConnId && claim.prevInstanceId !== INSTANCE_ID) await sleep(DUP_LOGIN_SETTLE_MS);
+    await Promise.allSettled(waits);
+    let prof = null;
+    try { prof = await store.getProfile(player.id); } catch (e) { console.warn('[store] getProfile failed', e.message); }
+    return sendWelcome(prof);
+  })().catch((e) => console.error('[ws] welcome failed', e.message));
 
   ws.on('message', (raw) => {
+    player.chain = player.chain.then(() => handleMessage(raw)).catch((e) => {
+      console.error('[ws] handler error', e && e.message);
+      safeSend(ws, { t: 'error', error: 'Server sibuk, coba lagi.' });
+    });
+  });
+
+  async function handleMessage(raw) {
+    if (player.closed || player.kicked) return;
     let msg; try { msg = JSON.parse(String(raw)); } catch { return; }
     const t = msg.t;
     if (t === 'ping') { safeSend(ws, { t: 'pong', ts: Date.now() }); return; }
@@ -421,26 +589,26 @@ wss.on('connection', (ws, req) => {
       const prof = sanitizeProfile(msg.profile);
       if (!prof) return safeSend(ws, { t: 'error', error: 'Profil terlalu besar / tidak valid.' });
       player.pendingProfile = prof;
+      player.pendingRev = Math.max(Date.now(), (player.pendingRev || 0) + 1);
       if (msg.now) saveProfile(player);
       return;
     }
-    if (t === 'list_worlds') { safeSend(ws, { t: 'worlds', worlds: worlds.listWorlds() }); return; }
+    if (t === 'list_worlds') { safeSend(ws, { t: 'worlds', worlds: await listWorldsShared() }); return; }
     if (t === 'create_world') {
       const name = worlds.normalizeWorldName(msg.name);
       if (!name) return safeSend(ws, { t: 'error', error: 'Nama dunia tidak valid.' });
-      const r = worlds.createWorld(name, player.id);
-      if (r.error && !worlds.getWorld(name)) return safeSend(ws, { t: 'error', error: r.error });
-      const joined = joinNamedWorld(player, name, false);
-      if (joined.error) return safeSend(ws, { t: 'error', error: joined.error });
-      broadcastAllGateways({ t: 'worlds', worlds: worlds.listWorlds() });
+      const joined = await joinNamedWorld(player, name, true);
+      if (joined.error) return joined.error === 'closed' ? undefined : safeSend(ws, { t: 'error', error: joined.error });
+      worldListCache.at = 0;
+      broadcastAllGateways({ t: 'worlds', worlds: await listWorldsShared() });
       return;
     }
     if (t === 'join_world' || t === 'travel') {
-      const joined = joinNamedWorld(player, msg.name || 'START', !!msg.create);
-      if (joined.error) return safeSend(ws, { t: 'error', error: joined.error });
+      const joined = await joinNamedWorld(player, msg.name || 'START', !!msg.create);
+      if (joined.error) return joined.error === 'closed' ? undefined : safeSend(ws, { t: 'error', error: joined.error });
       return;
     }
-    if (t === 'leave_world') { leaveCurrentWorld(player); safeSend(ws, { t: 'left_world' }); return; }
+    if (t === 'leave_world') { leaveCurrentWorld(player, { cancelTrade: true }); safeSend(ws, { t: 'left_world' }); return; }
     if (t === 'move') {
       let tx = typeof msg.tx === 'number' ? msg.tx : msg.x;
       let ty = typeof msg.ty === 'number' ? msg.ty : msg.y;
@@ -457,7 +625,7 @@ wss.on('connection', (ws, req) => {
     const world = player.worldName ? worlds.getWorld(player.worldName) : null;
     if (t === 'punch') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
-      const r = worlds.punch(world, player, msg.x, msg.y);
+      const r = sync.submit(world, { kind: 'punch', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y });
       if (r.error) return safeSend(ws, { t: 'error', error: r.error });
       if (r.noop) return;
       broadcastWorld(world, {
@@ -468,7 +636,7 @@ wss.on('connection', (ws, req) => {
     }
     if (t === 'place') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
-      const r = worlds.place(world, player, msg.x, msg.y, msg.id);
+      const r = sync.submit(world, { kind: 'place', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y, id: msg.id });
       if (r.error) return safeSend(ws, { t: 'error', error: r.error });
       broadcastWorld(world, {
         t: 'tile', x: r.x, y: r.y, id: r.id, by: player.id, action: 'place',
@@ -482,100 +650,37 @@ wss.on('connection', (ws, req) => {
       if (!text) return;
       if (text.length > MAX_CHAT_LEN) text = text.slice(0, MAX_CHAT_LEN);
       const cmd = text.match(/^\/(access|unaccess|accesslist)\b\s*([A-Za-z0-9_]*)/i);
-      if (cmd) { handleAccessCommand(player, world, cmd[1].toLowerCase(), cmd[2]); return; }
-      broadcastWorld(world, { t: 'chat', from: player.username, id: player.id, text, world: world.name, ts: Date.now() });
+      if (cmd) { await handleAccessCommand(player, world, cmd[1].toLowerCase(), cmd[2]); return; }
+      const line = { t: 'chat', from: player.username, id: player.id, text, world: world.name, ts: Date.now() };
+      broadcastWorld(world, line);
+      sync.publishChat(world, line);
       return;
     }
-    if (t === 'trade_request') {
-      if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
-      const toId = String(msg.to || '');
-      const target = world.players.get(toId);
-      if (!target) return safeSend(ws, { t: 'error', error: 'Pemain tidak di dunia ini.' });
-      const r = trades.request(player, toId);
-      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      const pub = trades.publicSession(r.session);
-      safeSend(ws, { t: 'trade', event: 'requested', trade: pub });
-      safeSend(target.ws, { t: 'trade', event: 'incoming', trade: pub });
+    if (t.startsWith && t.startsWith('trade_')) {
+      if (['trade_request', 'trade_accept', 'trade_cancel', 'trade_offer', 'trade_ready'].includes(t)) await handleTrade(player, ws, world, t, msg);
       return;
     }
-    if (t === 'trade_accept') {
-      const r = trades.accept(player, msg.id);
-      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      const pub = trades.publicSession(r.session);
-      const a = findPlayerById(r.session.a); const b = findPlayerById(r.session.b);
-      if (a) safeSend(a.ws, { t: 'trade', event: 'open', trade: pub });
-      if (b) safeSend(b.ws, { t: 'trade', event: 'open', trade: pub });
-      return;
-    }
-    if (t === 'trade_cancel') {
-      const r = trades.cancel(player);
-      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      const pub = trades.publicSession(r.session);
-      const a = findPlayerById(r.session.a); const b = findPlayerById(r.session.b);
-      if (a) safeSend(a.ws, { t: 'trade', event: 'cancelled', trade: pub });
-      if (b) safeSend(b.ws, { t: 'trade', event: 'cancelled', trade: pub });
-      return;
-    }
-    if (t === 'trade_offer') {
-      const r = trades.offer(player, msg.items, msg.gems);
-      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      notifyTrade(r.session, 'offer');
-      return;
-    }
-    if (t === 'trade_ready') {
-      const r = trades.ready(player, msg.ready !== false);
-      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
-      notifyTrade(r.session, 'ready');
-      if (r.bothReady) {
-        const s = r.session;
-        const offerA = s.offers[s.a] || { items: [], gems: 0 };
-        const offerB = s.offers[s.b] || { items: [], gems: 0 };
-        const pa = findPlayerById(s.a); const pb = findPlayerById(s.b);
-        if (!pa || !pb) { trades.complete(s.id); return; }
-        if (!canFulfill(pa, offerA) || !canFulfill(pb, offerB)) {
-          safeSend(pa.ws, { t: 'trade', event: 'failed', error: 'Inventori tidak cukup.', trade: trades.publicSession(s) });
-          safeSend(pb.ws, { t: 'trade', event: 'failed', error: 'Inventori tidak cukup.', trade: trades.publicSession(s) });
-          s.ready[s.a] = false; s.ready[s.b] = false;
-          return;
-        }
-        applyOffer(pa, offerA, -1); applyOffer(pb, offerB, -1);
-        applyOffer(pa, offerB, +1); applyOffer(pb, offerA, +1);
-        const done = trades.complete(s.id);
-        store.logTrade({ a: s.a, b: s.b, world: s.worldName, offerA, offerB })
-          .catch((e) => console.warn('[store] logTrade failed', e.message));
-        const payload = {
-          t: 'trade', event: 'completed', trade: trades.publicSession(done),
-          give: { [s.a]: offerB, [s.b]: offerA }, take: { [s.a]: offerA, [s.b]: offerB },
-        };
-        safeSend(pa.ws, payload); safeSend(pb.ws, payload);
-      }
-      return;
-    }
-  });
+  }
 
   ws.on('close', () => {
+    player.closed = true;
     leaveCurrentWorld(player);
     saveProfile(player);
-    const open = trades.getOpenFor(player.id);
-    if (open) {
-      const otherId = open.a === player.id ? open.b : open.a;
-      trades.cancel(player);
-      const other = findPlayerById(otherId);
-      if (other) safeSend(other.ws, { t: 'trade', event: 'cancelled', trade: trades.publicSession(open) });
-    }
+    if (player.authed) store.releaseSession(player.id, player.connId).catch(() => {});
+    if (!player.kicked) cancelTradeFor(player).catch((e) => console.warn('[trade] cancel on close failed', e.message));
     shard.connections.delete(ws);
     shard.players = shard.connections.size;
   });
 });
 
 setInterval(() => {
-  for (const winfo of worlds.listWorlds()) {
-    const world = worlds.getWorld(winfo.name);
+  for (const world of worlds.allWorlds()) {
     if (!world || world.players.size === 0) continue;
     const snap = [];
     for (const p of world.players.values()) {
       snap.push({ i: p.id, u: p.username, x: p.x, y: p.y, px: p.px, py: p.py });
     }
+    for (const r of sync.remotePlayers(world)) snap.push({ i: r.i, u: r.u, x: r.x, y: r.y, px: r.px, py: r.py });
     for (const p of world.players.values()) {
       const nearby = [];
       for (const o of snap) {
@@ -596,6 +701,11 @@ setInterval(() => {
 
 async function handleAccessCommand(player, world, cmd, targetName) {
   const reply = (text) => safeSend(player.ws, { t: 'chat', from: 'SYSTEM', id: 'system', text, world: world.name, ts: Date.now() });
+  const announce = (text) => {
+    const line = { t: 'chat', from: 'SYSTEM', id: 'system', text, world: world.name, ts: Date.now() };
+    broadcastWorld(world, line);
+    sync.publishChat(world, line);
+  };
   if (cmd === 'accesslist') {
     const names = (world.access || []).map((a) => a.username);
     return reply(world.lockOwnerId
@@ -608,23 +718,22 @@ async function handleAccessCommand(player, world, cmd, targetName) {
     let target = null;
     try { target = await store.getUser(targetName); } catch (e) { return reply('Database sibuk, coba lagi.'); }
     if (!target) return reply(`Pemain ${targetName} tidak ditemukan.`);
-    const r = worlds.grantAccess(world, player, { id: target.id, username: target.username });
+    const r = sync.submit(world, { kind: 'access_grant', actorId: player.id, actorName: player.username, target: { id: target.id, username: target.username } });
     if (r.error) return reply(r.error);
-    saveWorld(world, 'access');
-    broadcastWorld(world, { t: 'chat', from: 'SYSTEM', id: 'system', text: `${target.username} diberi akses World Lock oleh ${player.username}.`, world: world.name, ts: Date.now() });
+    announce(`${target.username} diberi akses World Lock oleh ${player.username}.`);
     return;
   }
-  const r = worlds.revokeAccess(world, player, targetName);
+  const r = sync.submit(world, { kind: 'access_revoke', actorId: player.id, actorName: player.username, target: targetName });
   if (r.error) return reply(r.error);
-  saveWorld(world, 'access');
-  broadcastWorld(world, { t: 'chat', from: 'SYSTEM', id: 'system', text: `Akses ${targetName} dicabut.`, world: world.name, ts: Date.now() });
+  announce(`Akses ${targetName} dicabut.`);
 }
 
-// Periodic persistence: dirty worlds + pending player profiles.
+// Periodic persistence: world snapshots (authoritative state only) + pending player profiles.
 setInterval(() => {
-  flushAllWorlds('interval');
-  for (const s of shards) for (const ws of s.connections) if (ws._player) saveProfile(ws._player);
+  sync.snapshotAll().catch((e) => console.error('[sync] snapshotAll', e.message));
+  for (const p of localPlayers()) saveProfile(p);
 }, SAVE_INTERVAL_MS);
+setInterval(() => { sync.maintenance(); }, MAINTENANCE_MS);
 
 let shuttingDown = false;
 async function shutdown(sig) {
@@ -634,9 +743,12 @@ async function shutdown(sig) {
   const hard = setTimeout(() => process.exit(1), 10000);
   try {
     const pending = [];
-    for (const s of shards) for (const ws of s.connections) if (ws._player) pending.push(saveProfile(ws._player));
+    for (const p of localPlayers()) {
+      pending.push(saveProfile(p));
+      if (p.authed) pending.push(store.releaseSession(p.id, p.connId).catch(() => {}));
+    }
     await Promise.all(pending);
-    await flushAllWorlds('shutdown');
+    await sync.shutdown();
     await store.close();
   } catch (e) { console.error('[shutdown]', e.message); }
   clearTimeout(hard);
@@ -647,12 +759,10 @@ process.on('SIGINT', () => shutdown('SIGINT'));
 
 async function start() {
   await store.init();
-  const saved = await store.loadWorlds();
-  let restored = 0;
-  for (const w of saved) if (worlds.hydrate(w)) restored++;
-  worlds.ensureStart();
-  await flushAllWorlds('startup');
-  console.log(`[store] backend=${store.kind} worlds restored=${restored}`);
+  const r = await sync.ensureWorld('START', { create: true, creatorId: 'system' });
+  if (r.error) throw new Error(`START world: ${r.error}`);
+  sync.start();
+  console.log(`[store] backend=${store.kind} instance=${INSTANCE_ID} START@${r.world.appliedSeq}`);
   server.listen(PORT, HOST, onListening);
 }
 start().catch((e) => {
@@ -663,6 +773,6 @@ start().catch((e) => {
 function onListening() {
   console.log(`Pixeltopia SHARED server on http://${HOST}:${PORT}`);
   console.log(`mode=shared-process shards=${SHARD_COUNT} max/shard=${MAX_CONN_PER_SHARD} capacity=${SHARD_COUNT * MAX_CONN_PER_SHARD}`);
-  console.log(`tick=${TICK_HZ}Hz interest=${INTEREST_RADIUS} worlds=${worlds.listWorlds().length}`);
+  console.log(`tick=${TICK_HZ}Hz interest=${INTEREST_RADIUS} sync-poll=${SYNC_POLL_MS}ms`);
   console.log('JWT_SECRET is', process.env.JWT_SECRET ? 'from env' : 'DEV DEFAULT — set JWT_SECRET in production');
 }

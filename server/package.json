@@ -7,7 +7,8 @@
   "type": "commonjs",
   "scripts": {
     "start": "node index.js",
-    "loadtest": "node loadtest.js"
+    "loadtest": "node loadtest.js",
+    "test": "NO_DOTENV=1 node --test test/"
   },
   "engines": {
     "node": ">=18"

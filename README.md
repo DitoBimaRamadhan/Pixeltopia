@@ -2,6 +2,14 @@
 
 **Original** single-player 2D sandbox + planting prototype (Godot 4).
 
+## v1.6.1 — Multi-server world sync
+- The online server can run as several instances (Deno Deploy regions) and every player sees the **same world**:
+  block edits, World Lock + `/access`, chat, player presence and trades are shared through Postgres
+  (per-world gapless event log + snapshots, presence table, DB-backed trade sessions with exactly-once completion).
+- Logging in on a second device closes the older session ("Login di perangkat lain"); profiles are revision-guarded
+  so an old session can no longer overwrite newer progress.
+- Server tests: `cd server && npm test` (Postgres tests only run when `TEST_DATABASE_URL` points at a test database).
+
 ## v1.6.0 — Atmosphere & progression
 - **Dynamic weather:** Rain & Thunder (plus Clear / Aurora / City) — rain speeds crop growth, thunder flashes + SFX
 - **Day/night cycle:** continuous clock with auto cycle (default on)
