@@ -61,6 +61,7 @@ func _ready() -> void:
 		hud.apply_pixeltopia_theme()
 	if hud.has_method("set_xp_label"):
 		hud.set_xp_label(progress.level, progress.xp, progress.xp_to_next())
+	_setup_parallax()
 	_setup_multiplayer()
 	_rain_secs = 0.0
 
@@ -91,6 +92,8 @@ func _setup_multiplayer() -> void:
 	net.tile_update.connect(_on_tile_update)
 	net.tile_hit.connect(func (m):
 		world.set_hit(int(m.get("x", -1)), int(m.get("y", -1)), int(m.get("hits", 0)), int(m.get("need", 0)))
+		if str(m.get("by", "")) == net.my_id:
+			Sfx.play_hit()
 	)
 	net.snap.connect(func (arr): remotes.apply_snap(arr))
 	net.player_join.connect(func (p): remotes.add_player(p))
@@ -103,6 +106,15 @@ func _setup_multiplayer() -> void:
 	net.reward.connect(_on_reward)
 	net.plant_update.connect(_on_plant_update)
 	net.quest_state.connect(_on_quest_state)
+	net.social_msg.connect(func (m):
+		if hud.has_method("on_social"):
+			hud.on_social(m)
+	)
+	net.world_settings.connect(func (st, by):
+		_apply_world_settings(st, false)
+		if hud.has_method("on_world_settings"):
+			hud.on_world_settings(st, by)
+	)
 	net.update_required.connect(func (m, url):
 		if hud.has_method("show_update_required"):
 			hud.show_update_required(m, url)
@@ -164,6 +176,8 @@ func _on_net_connected() -> void:
 	var wname := str(Session.selected_server.get("world", "START"))
 	net.join_world(wname, true)
 	net.sync_inventory(inv)
+	if hud.hub:
+		hud.hub.refresh_badges()
 
 ## v1.7: the server's wallet (account or guest session kit) is the source of truth online.
 func _on_inv_state(data: Dictionary) -> void:
@@ -204,6 +218,7 @@ func _on_quest_state(data: Dictionary) -> void:
 		quests.apply_server_state(data.get("progress", {}), data.get("claimed", []))
 
 func _on_world_state(data: Dictionary) -> void:
+	_apply_world_settings(net.current_settings, true)
 	var grid: Array = data.get("grid", [])
 	if grid.size() == world.W * world.H:
 		for i in range(grid.size()):
@@ -414,3 +429,23 @@ func load_game() -> void:
 	if hud.has_method("set_dirty"):
 		hud.set_dirty(false)
 	hud.show_status("Loaded save.")
+
+
+# ---------------------------------------------------------------- v1.8 parallax + world settings
+var parallax: CanvasLayer = null
+
+func _setup_parallax() -> void:
+	parallax = CanvasLayer.new()
+	parallax.name = "Parallax"
+	parallax.set_script(load("res://scripts/parallax_bg.gd"))
+	add_child(parallax)
+	parallax.camera = player.get_node_or_null("Camera2D")
+	parallax.tint_source = weather
+
+func _apply_world_settings(st: Dictionary, joined: bool) -> void:
+	if parallax:
+		parallax.set_theme(int(st.get("bg", 0)))
+	var welcome := str(st.get("welcome", ""))
+	if joined and welcome != "" and hud.has_method("show_toast"):
+		var owner := str(net.lock_owner_name) if net else ""
+		hud.show_toast(I18n.t("world_welcome_toast", [owner if owner != "" else net.current_world, welcome]), 5.0)

@@ -31,9 +31,14 @@ var _backpack_pick: int = -1
 var _dirty: bool = false
 var _main: Node = null
 var _gems_lbl: Label = null
-var _shop_root: ColorRect = null
-var _shop_list: VBoxContainer = null
-var _shop_status: Label = null
+var shop: Node = null  ## v1.8 scripts/ui/shop_panel.gd
+var hub: Node = null  ## v1.8 scripts/ui/hub_panel.gd
+var tutorial: Node = null
+var hub_open: bool = false
+var _toast: Label = null
+var _fps_lbl: Label = null
+var _hub_btn: Button = null
+var _hub_dot: Label = null
 var _quest_root: ColorRect = null
 var _quest_list: VBoxContainer = null
 var _quest_status: Label = null
@@ -101,7 +106,7 @@ func _ready() -> void:
 	_setup_avatar_ui()
 	_setup_backpack_ui()
 	_setup_gems_label()
-	_build_shop_ui()
+	_build_panels_v18()
 	_build_quest_ui()
 	_build_splice_ui()
 	_add_drop_touch_btn()
@@ -137,7 +142,17 @@ func _setup_gems_label() -> void:
 
 func _on_gems_changed(amount: int) -> void:
 	if _gems_lbl:
-		_gems_lbl.text = "Gems: %d" % amount
+		var prev := int(_gems_lbl.get_meta("gems", amount))
+		_gems_lbl.set_meta("gems", amount)
+		_gems_lbl.text = I18n.t("gems", [amount])
+		if amount != prev:
+			## v1.8 HUD polish: pulse the counter (green up / red down)
+			_gems_lbl.pivot_offset = _gems_lbl.size * Vector2(0.0, 0.5)
+			var tw := create_tween()
+			_gems_lbl.modulate = Color(0.6, 1.0, 0.6) if amount > prev else Color(1.0, 0.6, 0.6)
+			tw.tween_property(_gems_lbl, "scale", Vector2(1.18, 1.18), 0.08)
+			tw.tween_property(_gems_lbl, "scale", Vector2.ONE, 0.12)
+			tw.parallel().tween_property(_gems_lbl, "modulate", Color.WHITE, 0.4)
 
 const HINT_OFFLINE := "A/D · W jump · hold LMB punch · RMB place · Q drop · C craft · Y splice · B bag · P store · L badges · Esc"
 const HINT_ONLINE := "A/D · W jump · hold LMB punch · RMB place · C craft · Y splice · B bag · P store · L badges · Enter chat · Esc"
@@ -147,9 +162,9 @@ func _apply_hint() -> void:
 	if not hint:
 		return
 	if DisplayServer.is_touchscreen_available():
-		hint.text = "Tahan Punch untuk menghancurkan blok · Place untuk membangun" + ("" if online_mode else " · Drop")
+		hint.text = I18n.t("hint_touch")
 	else:
-		hint.text = HINT_ONLINE if online_mode else HINT_OFFLINE
+		hint.text = I18n.t("hint_keys_on") if online_mode else I18n.t("hint_keys_off")
 
 ## v1.8 safe area: keep HUD controls clear of notches / punch-holes / rounded corners.
 ## Root shrinks to the safe rect (in canvas units); full-screen dim overlays grow back over the margins.
@@ -240,8 +255,6 @@ func _on_inv_changed() -> void:
 		_rebuild_craft_list()
 	if backpack_open:
 		_rebuild_backpack()
-	if shop_open:
-		_rebuild_shop()
 	if splice_open:
 		_rebuild_splice()
 	if _gems_lbl:
@@ -282,6 +295,13 @@ func _unhandled_input(event: InputEvent) -> void:
 				open_shop()
 			get_viewport().set_input_as_handled()
 			return
+		if event.keycode == KEY_M and not paused and not chat_open:
+			if hub_open:
+				close_hub()
+			else:
+				open_hub()
+			get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_Y and not paused:
 			if splice_open:
 				close_splice()
@@ -318,6 +338,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_backpack()
 			elif shop_open:
 				close_shop()
+			elif hub_open:
+				close_hub()
 			elif quest_open:
 				close_quest()
 			elif splice_open:
@@ -484,6 +506,18 @@ func _setup_touch() -> void:
 	punch.button_down.connect(func() -> void: player.set_touch_punch(true))
 	punch.button_up.connect(func() -> void: player.set_touch_punch(false))
 	place.pressed.connect(_touch_place)
+	## v1.8: hold Down to drop through one-way platforms.
+	var down := UiCircle.make_button(I18n.t("down_btn"), UiCircle.COMPACT_SIZE, Color(0.35, 0.5, 0.7))
+	down.name = "BtnDown"
+	down.anchor_top = 1.0
+	down.anchor_bottom = 1.0
+	down.offset_left = 176.0
+	down.offset_top = -132.0
+	down.offset_right = 232.0
+	down.offset_bottom = -76.0
+	down.button_down.connect(func() -> void: player.set_touch_down(true))
+	down.button_up.connect(func() -> void: player.set_touch_down(false))
+	$Root/TouchPad.add_child(down)
 	prev.pressed.connect(func() -> void:
 		inv.select((inv.selected - 1 + inv.hotbar_len()) % inv.hotbar_len())
 		Sfx.play_ui())
@@ -821,6 +855,8 @@ func _close_overlays_except(keep: String) -> void:
 		close_avatar()
 	if keep != "shop" and shop_open:
 		close_shop()
+	if keep != "hub" and hub_open:
+		close_hub()
 	if keep != "quest" and quest_open:
 		close_quest()
 	if keep != "splice" and splice_open:
@@ -882,13 +918,6 @@ func _add_store_btn() -> void:
 		Sfx.play_ui())
 	$Root.add_child(b)
 
-func _build_shop_ui() -> void:
-	var ui := _make_modal("ShopUI", "Pixeltopia Store")
-	_shop_root = ui["root"]
-	_shop_list = ui["list"]
-	_shop_status = ui["status"]
-	_shop_status.text = "Spend gems to buy seeds, blocks, and tools."
-	ui["close"].pressed.connect(close_shop)
 func _build_quest_ui() -> void:
 	var ui := _make_modal("QuestUI", "Quill the Guide — Quests")
 	_quest_root = ui["root"]
@@ -897,20 +926,18 @@ func _build_quest_ui() -> void:
 	_quest_status.text = "Accept a quest, complete it, claim rewards."
 	ui["close"].pressed.connect(close_quest)
 
-func open_shop() -> void:
+func open_shop(start_tab: String = "") -> void:
 	if paused:
 		return
 	_close_overlays_except("shop")
 	shop_open = true
-	_shop_root.visible = true
-	_rebuild_shop()
-	Sfx.play_ui()
+	shop.open(start_tab)
 	_emit_block_input()
 
 func close_shop() -> void:
 	shop_open = false
-	if _shop_root:
-		_shop_root.visible = false
+	if shop:
+		shop.close()
 	_emit_block_input()
 
 func open_quest() -> void:
@@ -929,64 +956,6 @@ func close_quest() -> void:
 		_quest_root.visible = false
 	_emit_block_input()
 
-func _rebuild_shop() -> void:
-	for c in _shop_list.get_children():
-		c.queue_free()
-	var gems_row := Label.new()
-	gems_row.text = "Your gems: %d" % inv.gems
-	gems_row.add_theme_color_override("font_color", Color(0.55, 1.0, 0.85))
-	_shop_list.add_child(gems_row)
-	var tip := Label.new()
-	tip.text = "Farmable blocks drop more gems & seeds when broken."
-	tip.add_theme_font_size_override("font_size", 11)
-	tip.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0))
-	tip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_shop_list.add_child(tip)
-	var div := Label.new()
-	div.text = "—— Buy with gems ——"
-	div.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_shop_list.add_child(div)
-	for info in Items.store_stock():
-		var id: int = int(info["id"])
-		var price: int = int(info["buy"])
-		if price < 0:
-			continue
-		var row := HBoxContainer.new()
-		var lab := Label.new()
-		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		var farm_tag := " · Farmable" if Items.is_farmable(id) else ""
-		lab.text = "%s — %d gems%s\n%s [%s]" % [
-			Items.display_name(id), price, farm_tag, Items.description(id), Items.rarity_name(id)]
-		lab.add_theme_font_size_override("font_size", 12)
-		lab.add_theme_color_override("font_color", Items.rarity_color(id))
-		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		var buy := UiCircle.make_button("Buy", UiCircle.COMPACT_SIZE, Color(0.25, 0.7, 0.45))
-		buy.disabled = inv.gems < price
-		var iid := id
-		var ip := price
-		buy.pressed.connect(func() -> void: _shop_buy(iid, ip))
-		row.add_child(lab)
-		row.add_child(buy)
-		_shop_list.add_child(row)
-
-func _shop_buy(id: int, price: int) -> void:
-	if _server_inv():
-		if inv.gems < price:
-			_shop_status.text = "Not enough gems."
-			Sfx.play_ui()
-			return
-		_net.send_inv_request("shop_buy", {"id": id, "n": 1})
-		_shop_status.text = "Buying %s…" % Items.display_name(id)
-		return
-	if not inv.spend_gems(price):
-		_shop_status.text = "Not enough gems."
-		Sfx.play_ui()
-		_rebuild_shop()
-		return
-	inv.add_item(id, 1)
-	_shop_status.text = "Bought 1× %s (−%d gems)." % [Items.display_name(id), price]
-	Sfx.play_craft()
-	_rebuild_shop()
 func _quest_log() -> Node:
 	return get_parent().get_node("QuestLog")
 
@@ -1251,12 +1220,8 @@ func on_inv_result(data: Dictionary) -> void:
 			if craft_open:
 				_rebuild_craft_list()
 		"shop_buy", "shop_sell":
-			if _shop_status:
-				_shop_status.text = "Done!" if ok else err
-			if ok:
-				Sfx.play_craft()
-			if _shop_list:
-				_rebuild_shop()
+			if shop:
+				shop.on_result(str(data.get("op", "")), ok, err, res)
 		"splice":
 			if ok:
 				var rid := int(res.get("id", res.get("result", -1)))
@@ -1846,3 +1811,154 @@ func _rebuild_achieve() -> void:
 	if _achieve_status:
 		_achieve_status.text = "Unlocked %d / %d badges" % [unlocked, total]
 
+
+
+# ---------------------------------------------------------------- v1.8 panels / HUD polish
+const ShopPanel = preload("res://scripts/ui/shop_panel.gd")
+const HubPanel = preload("res://scripts/ui/hub_panel.gd")
+const TutorialPanel = preload("res://scripts/ui/tutorial.gd")
+
+func _build_panels_v18() -> void:
+	shop = ShopPanel.new()
+	shop.name = "ShopPanel"
+	add_child(shop)
+	shop.setup(self, inv, $Root)
+	hub = HubPanel.new()
+	hub.name = "HubPanel"
+	add_child(hub)
+	hub.setup(self, $Root)
+	hub.daily_badge_changed.connect(_on_hub_badge)
+	hub.replay_tutorial.connect(start_tutorial)
+	tutorial = TutorialPanel.new()
+	tutorial.name = "TutorialPanel"
+	add_child(tutorial)
+	tutorial.setup($Root)
+	_add_hub_btn()
+	_toast = Label.new()
+	_toast.name = "Toast"
+	_toast.visible = false
+	_toast.anchor_left = 0.5
+	_toast.anchor_right = 0.5
+	_toast.offset_left = -320
+	_toast.offset_right = 320
+	_toast.offset_top = 96
+	_toast.offset_bottom = 140
+	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_toast.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_toast.add_theme_font_size_override("font_size", 15)
+	_toast.add_theme_color_override("font_color", Color(1, 0.95, 0.75))
+	_toast.add_theme_color_override("font_outline_color", Color(0.05, 0.1, 0.08))
+	_toast.add_theme_constant_override("outline_size", 6)
+	$Root.add_child(_toast)
+	_fps_lbl = Label.new()
+	_fps_lbl.name = "Fps"
+	_fps_lbl.anchor_left = 1.0
+	_fps_lbl.anchor_right = 1.0
+	_fps_lbl.anchor_top = 1.0
+	_fps_lbl.anchor_bottom = 1.0
+	_fps_lbl.offset_left = -90
+	_fps_lbl.offset_top = -24
+	_fps_lbl.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_fps_lbl.add_theme_font_size_override("font_size", 11)
+	$Root.add_child(_fps_lbl)
+	Settings.changed.connect(_on_settings_changed)
+	_on_settings_changed.call_deferred()
+	if not Settings.tutorial_done:
+		start_tutorial.call_deferred()
+
+func _add_hub_btn() -> void:
+	_hub_btn = UiKit.button(I18n.t("menu"), Color(0.55, 0.35, 0.65), 84.0, 44.0)
+	_hub_btn.name = "BtnHub"
+	_hub_btn.anchor_left = 1.0
+	_hub_btn.anchor_right = 1.0
+	_hub_btn.offset_left = -100.0
+	_hub_btn.offset_right = -12.0
+	_hub_btn.offset_top = 132.0
+	_hub_btn.offset_bottom = 176.0
+	_hub_btn.pressed.connect(func() -> void:
+		if hub_open:
+			close_hub()
+		else:
+			open_hub())
+	_hub_dot = Label.new()
+	_hub_dot.text = "!"
+	_hub_dot.visible = false
+	_hub_dot.position = Vector2(70, -8)
+	_hub_dot.add_theme_font_size_override("font_size", 18)
+	_hub_dot.add_theme_color_override("font_color", Color(1, 0.35, 0.3))
+	_hub_dot.add_theme_color_override("font_outline_color", Color(1, 1, 1))
+	_hub_dot.add_theme_constant_override("outline_size", 4)
+	_hub_btn.add_child(_hub_dot)
+	$Root.add_child(_hub_btn)
+
+func _on_hub_badge(ready: bool, unread: int) -> void:
+	if _hub_dot:
+		_hub_dot.visible = ready or unread > 0
+		_hub_dot.text = str(unread) if unread > 0 else "!"
+
+func open_hub(start_tab: String = "") -> void:
+	if paused or hub == null:
+		return
+	_close_overlays_except("hub")
+	hub_open = true
+	hub.open(start_tab)
+	_emit_block_input()
+
+func close_hub() -> void:
+	hub_open = false
+	if hub:
+		hub.close()
+	_emit_block_input()
+
+func start_tutorial() -> void:
+	if tutorial:
+		tutorial.start()
+
+func show_toast(text: String, secs: float = 3.5) -> void:
+	if _toast == null:
+		return
+	_toast.text = text
+	_toast.visible = true
+	_toast.modulate.a = 0.0
+	var tw := create_tween()
+	tw.tween_property(_toast, "modulate:a", 1.0, 0.2)
+	tw.tween_interval(secs)
+	tw.tween_property(_toast, "modulate:a", 0.0, 0.4)
+	tw.tween_callback(func() -> void: _toast.visible = false)
+
+func on_social(m: Dictionary) -> void:
+	if hub:
+		hub.on_social(m)
+
+func on_world_settings(settings: Dictionary, by: String) -> void:
+	if hub:
+		hub.on_world_settings()
+	if by != "" and _net and by != str(_net.my_username):
+		show_toast(I18n.t("world_saved"))
+
+func refresh_language() -> void:
+	_apply_hint()
+	if _gems_lbl:
+		_gems_lbl.text = I18n.t("gems", [inv.gems])
+	if _hub_btn:
+		_hub_btn.text = I18n.t("menu")
+	var down := get_node_or_null("Root/TouchPad/BtnDown")
+	if down:
+		down.text = I18n.t("down_btn")
+	if shop and shop.is_open:
+		shop.rebuild()
+
+func _on_settings_changed() -> void:
+	if _fps_lbl:
+		_fps_lbl.visible = Settings.show_fps
+	var pad := get_node_or_null("Root/TouchPad")
+	if pad:
+		for c in pad.get_children():
+			if c is Control:
+				(c as Control).pivot_offset = (c as Control).size * 0.5
+				(c as Control).scale = Vector2.ONE * Settings.touch_scale
+
+func _process(_delta: float) -> void:
+	if _fps_lbl and _fps_lbl.visible:
+		_fps_lbl.text = "FPS %d" % Engine.get_frames_per_second()

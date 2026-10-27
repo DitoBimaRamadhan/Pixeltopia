@@ -202,6 +202,8 @@ func _on_tile_broken(world_pos: Vector2) -> void:
 	world_edited.emit()
 
 func _shake(duration: float, magnitude: float) -> void:
+	if not Settings.screen_shake:
+		return
 	_shake_t = maxf(_shake_t, duration)
 	if camera:
 		camera.offset = Vector2(randf_range(-magnitude, magnitude), randf_range(-magnitude, magnitude))

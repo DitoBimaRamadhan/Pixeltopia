@@ -7,11 +7,16 @@ config/description="Original 2D sandbox farming prototype. Not affiliated with G
 run/main_scene="res://scenes/auth/login.tscn"
 config/features=PackedStringArray("4.3", "Forward Plus")
 config/icon="res://icon.svg"
-config/version="1.7.2"
+config/version="1.8.0"
 
 [autoload]
+Settings="*res://scripts/settings.gd"
 Session="*res://scripts/auth/session.gd"
 Sfx="*res://scripts/sfx.gd"
+
+[audio]
+
+buses/default_bus_layout="res://default_bus_layout.tres"
 
 [display]
 window/size/viewport_width=960

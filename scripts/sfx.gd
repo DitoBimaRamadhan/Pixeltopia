@@ -6,14 +6,41 @@ var muted: bool = false
 var music_muted: bool = false
 var _players: Array = []  ## AudioStreamPlayer pool
 var _pool_i: int = 0
-var _streams: Dictionary = {}  ## name -> AudioStreamWAV
+var _streams: Dictionary = {}  ## name -> AudioStream
 var _bgm: AudioStreamPlayer = null
 var _rain: AudioStreamPlayer = null
+var _order: Array = []
+var _track_i: int = -1
+var now_playing: String = ""
+
+signal track_changed(title: String)
+
+## v1.8: 11 original generated tracks (tools/audio/gen_audio.py), shuffled; OGG SFX with tone fallbacks.
+const TRACKS := [
+	["res://assets/audio/music/01_meadow_morning.ogg", "Meadow Morning"],
+	["res://assets/audio/music/02_pixel_plains.ogg", "Pixel Plains"],
+	["res://assets/audio/music/03_seed_lab.ogg", "Seed Lab"],
+	["res://assets/audio/music/04_market_day.ogg", "Market Day"],
+	["res://assets/audio/music/05_starlit_farm.ogg", "Starlit Farm"],
+	["res://assets/audio/music/06_cavern_echo.ogg", "Cavern Echo"],
+	["res://assets/audio/music/07_rainy_greenhouse.ogg", "Rainy Greenhouse"],
+	["res://assets/audio/music/08_lockkeepers_march.ogg", "Lockkeeper's March"],
+	["res://assets/audio/music/09_desert_caravan.ogg", "Desert Caravan"],
+	["res://assets/audio/music/10_sunset_harvest.ogg", "Sunset Harvest"],
+	["res://assets/audio/music/11_snowy_peaks.ogg", "Snowy Peaks"],
+]
+const SFX_FILES := ["ui", "ui_open", "ui_close", "place", "hit", "break", "break_glass", "footstep", "jump", "land",
+	"harvest", "plant", "craft", "splice", "buy", "sell", "coin", "trade", "levelup", "achievement", "daily", "pm",
+	"error", "thunder", "door", "lock"]
+const SFX_DB := {"footstep": -14.0, "ui": -10.0, "hit": -8.0, "thunder": -2.0, "land": -10.0}
+
+static func _bus(name: String) -> String:
+	return name if AudioServer.get_bus_index(name) >= 0 else "Master"
 
 func _ready() -> void:
-	for i in range(8):
+	for i in range(10):
 		var p := AudioStreamPlayer.new()
-		p.bus = "Master"
+		p.bus = _bus("SFX")
 		add_child(p)
 		_players.append(p)
 	_streams["harvest"] = _make_tone([880.0, 1175.0], 0.14, 0.28, 0.35)
@@ -28,23 +55,61 @@ func _ready() -> void:
 	_streams["thunder"] = _make_noise(0.55, 0.45, 180.0)
 	_streams["levelup"] = _make_tone([523.0, 659.0, 784.0, 1046.0], 0.45, 0.28, 0.15)
 	_streams["achievement"] = _make_tone([659.0, 880.0, 1175.0], 0.35, 0.26, 0.2)
+	for n in SFX_FILES:
+		var path := "res://assets/audio/sfx/%s.ogg" % n
+		if ResourceLoader.exists(path):
+			var st: AudioStream = load(path)
+			if st:
+				_streams[n] = st
 	_bgm = AudioStreamPlayer.new()
-	_bgm.bus = "Master"
-	_bgm.volume_db = -18.0
+	_bgm.bus = _bus("Music")
+	_bgm.volume_db = -4.0
 	add_child(_bgm)
-	_bgm.stream = _make_bgm_loop()
+	_bgm.finished.connect(_next_track)
 	_rain = AudioStreamPlayer.new()
-	_rain.bus = "Master"
+	_rain.bus = _bus("SFX")
 	_rain.volume_db = -22.0
 	add_child(_rain)
 	_rain.stream = _make_rain_loop()
+	_order = range(TRACKS.size())
+	_order.shuffle()
 	call_deferred("start_music")
 
 func start_music() -> void:
-	if muted or music_muted:
+	if muted or music_muted or _bgm == null:
 		return
-	if _bgm and not _bgm.playing:
-		_bgm.play()
+	if not _bgm.playing:
+		if _bgm.stream == null:
+			_next_track()
+		else:
+			_bgm.play()
+
+func _next_track() -> void:
+	if muted or music_muted or TRACKS.is_empty():
+		return
+	_track_i = (_track_i + 1) % _order.size()
+	if _track_i == 0 and _order.size() > 1:
+		var last: int = _order[_order.size() - 1]
+		_order.shuffle()
+		if _order[0] == last:
+			_order.reverse()
+	var tr: Array = TRACKS[_order[_track_i]]
+	if not ResourceLoader.exists(tr[0]):
+		_bgm.stream = _make_bgm_loop()
+		now_playing = "Pixeltopia"
+	else:
+		var st: AudioStream = load(tr[0])
+		if st is AudioStreamOggVorbis:
+			(st as AudioStreamOggVorbis).loop = false
+		_bgm.stream = st
+		now_playing = str(tr[1])
+	_bgm.play()
+	track_changed.emit(now_playing)
+
+func skip_track() -> void:
+	if _bgm:
+		_bgm.stop()
+	_next_track()
 
 func stop_music() -> void:
 	if _bgm:
@@ -79,7 +144,7 @@ func set_rain(on: bool) -> void:
 	if not _rain.playing:
 		_rain.play()
 
-func play(name: String) -> void:
+func play(name: String, pitch_jitter: float = 0.0) -> void:
 	if muted:
 		return
 	if not _streams.has(name):
@@ -87,9 +152,8 @@ func play(name: String) -> void:
 	var p: AudioStreamPlayer = _players[_pool_i]
 	_pool_i = (_pool_i + 1) % _players.size()
 	p.stream = _streams[name]
-	p.volume_db = -6.0
-	if name == "thunder":
-		p.volume_db = -2.0
+	p.volume_db = float(SFX_DB.get(name, -6.0))
+	p.pitch_scale = 1.0 + (randf_range(-pitch_jitter, pitch_jitter) if pitch_jitter > 0.0 else 0.0)
 	p.play()
 
 func play_harvest() -> void:
@@ -99,16 +163,16 @@ func play_craft() -> void:
 	play("craft")
 
 func play_footstep() -> void:
-	play("footstep")
+	play("footstep", 0.12)
 
 func play_ui() -> void:
 	play("ui")
 
 func play_place() -> void:
-	play("place")
+	play("place", 0.08)
 
 func play_break() -> void:
-	play("break")
+	play("break", 0.1)
 
 func play_jump() -> void:
 	play("jump")
@@ -127,6 +191,33 @@ func play_levelup() -> void:
 
 func play_achievement() -> void:
 	play("achievement")
+
+func play_hit() -> void:
+	play("hit", 0.15)
+
+func play_sell() -> void:
+	play("sell")
+
+func play_buy() -> void:
+	play("buy")
+
+func play_daily() -> void:
+	play("daily")
+
+func play_pm() -> void:
+	play("pm")
+
+func play_error() -> void:
+	play("error")
+
+func play_open() -> void:
+	play("ui_open")
+
+func play_close() -> void:
+	play("ui_close")
+
+func play_plant() -> void:
+	play("plant", 0.06)
 
 func _make_tone(freqs: Array, duration: float, volume: float, slide: float) -> AudioStreamWAV:
 	var sample_rate := 22050

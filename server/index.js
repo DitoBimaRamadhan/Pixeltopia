@@ -58,8 +58,8 @@ const MAINTENANCE_MS = 5 * 60 * 1000;
 // SERVER_INV=1. With it on the server owns every inventory change online: wallets in Postgres for
 // accounts, a session-only kit for guests; client inventory writes (inv_sync / profile inventory) are ignored.
 const SERVER_INV = process.env.SERVER_INV === '1';
-// Clients older than MIN_PROTO (v1.7.0/1.7.1 send proto=2, v1.7.2 sends 3) are refused with an "update" message (0 = allow all).
-const CLIENT_PROTO = 3;
+// Clients older than MIN_PROTO (v1.7.0/1.7.1 send proto=2, v1.7.2 sends 3, v1.8.0 sends 4) are refused with an "update" message (0 = allow all).
+const CLIENT_PROTO = 4;
 const MIN_PROTO = Math.max(0, Number(process.env.MIN_PROTO || 0) | 0);
 const UPDATE_URL = process.env.UPDATE_URL || 'https://github.com/DitoBimaRamadhan/Pixeltopia/releases/latest';
 const UPDATE_MSG = `Versi game kamu sudah lama. Update Pixeltopia ke versi terbaru di ${UPDATE_URL}`;

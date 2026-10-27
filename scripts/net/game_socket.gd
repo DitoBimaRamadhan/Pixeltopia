@@ -22,8 +22,10 @@ signal plant_update(data: Dictionary)
 signal quest_state(data: Dictionary)
 signal update_required(message: String, url: String)
 signal tile_hit(data: Dictionary)  ## v1.8 server break progress {x, y, id, hits, need, by}
+signal social_msg(data: Dictionary)  ## v1.8 daily_state / leaderboard / friends / friend_event / pm / pm_thread / social_error
+signal world_settings(settings: Dictionary, by: String)  ## v1.8 owner changed {open, bg, welcome}
 
-const CLIENT_PROTO := 3
+const CLIENT_PROTO := 4  ## v1.8.0: daily, friends/PM, leaderboard, world settings, content pack
 
 var is_guest: bool = true
 var storage: String = ""
@@ -44,6 +46,7 @@ var server_inv: bool = false
 var _inv_ver: int = 0
 var _req_seq: int = 0
 var update_url: String = ""
+var current_settings: Dictionary = {}  ## v1.8 world settings of current_world
 
 func is_online() -> bool:
 	return online and _active and current_world != ""
@@ -125,6 +128,8 @@ func _handle(raw: String) -> void:
 			current_world = str(msg.get("name", ""))
 			lock_owner_id = str(msg.get("lockOwnerId", "") or "")
 			lock_owner_name = str(msg.get("lockOwnerName", "") or "")
+			var ws: Variant = msg.get("settings", {})
+			current_settings = ws if typeof(ws) == TYPE_DICTIONARY else {}
 			world_state.emit(msg)
 		"worlds":
 			worlds_list.emit(msg.get("worlds", []))
@@ -180,6 +185,20 @@ func _handle(raw: String) -> void:
 			plant_update.emit(msg)
 		"quest_state":
 			quest_state.emit(msg)
+		"daily_state", "leaderboard", "friends", "friend_event", "pm", "pm_thread", "social_error":
+			social_msg.emit(msg)
+		"world_settings":
+			var st: Variant = msg.get("settings", {})
+			current_settings = st if typeof(st) == TYPE_DICTIONARY else {}
+			world_settings.emit(current_settings, str(msg.get("by", "")))
+
+func send_social(t: String, fields: Dictionary = {}) -> void:
+	var d := fields.duplicate()
+	d["t"] = t
+	send_dict(d)
+
+func set_world_settings(settings: Dictionary) -> void:
+	send_dict({"t": "world_settings_set", "settings": settings})
 
 func send_dict(d: Dictionary) -> void:
 	if not online:

@@ -95,3 +95,15 @@ static func make_fist_cell(selected: bool) -> PanelContainer:
 	lab.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	cell.add_child(lab)
 	return cell
+
+## v1.8: bare item sprite for list rows (store, daily rewards).
+static func make_icon(item_id: int, px: float = 32.0) -> TextureRect:
+	var icon := TextureRect.new()
+	icon.custom_minimum_size = Vector2(px, px)
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	icon.texture = Tiles.icon_texture(item_id)
+	return icon
