@@ -90,6 +90,7 @@ func _physics_process(delta: float) -> void:
 			facing = nf
 			queue_redraw()
 
+	_dropping = _touch_down or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)
 	var want_jump := _touch_jump or Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)
 	_touch_jump = false
 	if not on_floor:
@@ -365,11 +366,28 @@ func _place(t: Vector2i) -> void:
 				main.notify_planted()
 		world_edited.emit()
 
+## v1.8 one-way platforms: hold S / Down (or the touch ▼ button) to drop through.
+var _dropping := false
+var _touch_down := false
+var _prev_bottom := 0.0
+
+func set_touch_down(on: bool) -> void:
+	_touch_down = on
+
+## Solid for this body right now? Platforms only catch you from above while falling.
+func _blocks(id: int, tile_top: float, vertical: bool) -> bool:
+	if Tiles.is_solid(id):
+		return true
+	if vertical and Tiles.is_platform(id) and not _dropping and velocity.y > 0.0:
+		return _prev_bottom <= tile_top + 0.5
+	return false
+
 func _resolve_tiles(delta: float) -> void:
 	var pos := global_position
 	pos.x += velocity.x * delta
 	pos = _separate(pos, true)
 	var before_y := pos.y
+	_prev_bottom = pos.y + BODY.y * 0.5
 	pos.y += velocity.y * delta
 	pos = _separate(pos, false)
 	on_floor = false
@@ -386,7 +404,10 @@ func _resolve_tiles(delta: float) -> void:
 func _feet_on_ground(pos: Vector2) -> bool:
 	var foot: Vector2 = pos + Vector2(0, BODY.y * 0.5 + 1.0)
 	var t: Vector2i = world.world_to_tile(foot)
-	return Tiles.is_solid(world.get_tile(t.x, t.y))
+	var id: int = world.get_tile(t.x, t.y)
+	if Tiles.is_platform(id) and not _dropping:
+		return absf(pos.y + BODY.y * 0.5 - t.y * Tiles.SIZE) <= 1.5
+	return Tiles.is_solid(id)
 
 func _separate(pos: Vector2, horizontal: bool) -> Vector2:
 	var half := BODY * 0.5
@@ -394,7 +415,7 @@ func _separate(pos: Vector2, horizontal: bool) -> Vector2:
 	var max_t: Vector2i = world.world_to_tile(pos + half - Vector2(0.01, 0.01))
 	for ty in range(min_t.y, max_t.y + 1):
 		for tx in range(min_t.x, max_t.x + 1):
-			if not Tiles.is_solid(world.get_tile(tx, ty)):
+			if not _blocks(world.get_tile(tx, ty), float(ty * Tiles.SIZE), not horizontal):
 				continue
 			var tile_r := Rect2(tx * Tiles.SIZE, ty * Tiles.SIZE, Tiles.SIZE, Tiles.SIZE)
 			var body_r := Rect2(pos - half, BODY)

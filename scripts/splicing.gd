@@ -5,6 +5,12 @@ class_name Splicing
 
 ## Unordered pair key "lo,hi" → result seed id.
 static func recipes() -> Dictionary:
+	var out := _base()
+	for sp in ContentData.SPLICES:
+		out[_key(int(sp[0]), int(sp[1]))] = int(sp[2])
+	return out
+
+static func _base() -> Dictionary:
 	return {
 		# Groveberry + Azureoot → Emberfruit Seed
 		_key(Tiles.Id.SEED, Tiles.Id.SEED_AZURE): Tiles.Id.SEED_EMBER,
@@ -64,10 +70,14 @@ static func known_pairs() -> Array:
 	return out
 
 static func all_seed_ids() -> Array:
-	return [
+	var out: Array = [
 		Tiles.Id.SEED,
 		Tiles.Id.SEED_AZURE,
 		Tiles.Id.SEED_EMBER,
 		Tiles.Id.SEED_MOON,
 		Tiles.Id.SEED_CRYSTAL,
 	]
+	for d in ContentData.TILES:
+		if str(d["kind"]) == "seed":
+			out.append(int(d["id"]))
+	return out

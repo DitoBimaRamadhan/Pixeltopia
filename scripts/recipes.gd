@@ -4,6 +4,22 @@ class_name Recipes
 
 ## Each recipe: id, name, result tile id, result_count, ingredients [{id, count}]
 static func all() -> Array:
+	var out := _base()
+	for r in ContentData.RECIPES:
+		var parts: Array = []
+		for ing in r["ingredients"]:
+			parts.append("%d %s" % [int(ing["count"]), Tiles.name_of(int(ing["id"]))])
+		out.append({
+			"id": str(r["id"]),
+			"name": str(r["name"]),
+			"blurb": "%s → %d %s" % [" + ".join(PackedStringArray(parts)), int(r["result_count"]), str(r["name"])],
+			"result": int(r["result"]),
+			"result_count": int(r["result_count"]),
+			"ingredients": (r["ingredients"] as Array).duplicate(true),
+		})
+	return out
+
+static func _base() -> Array:
 	return [
 		{
 			"id": "plank",

@@ -486,54 +486,60 @@ func from_save(data: Dictionary) -> bool:
 	queue_redraw()
 	return true
 
+## Per-id draw flags, built once: 1 = wall, 2 = glows, 4 = seed.
+static var _draw_flags: PackedInt32Array = PackedInt32Array()
+
+static func _flags() -> PackedInt32Array:
+	if _draw_flags.is_empty():
+		_draw_flags.resize(256)
+		for id in Tiles.all_ids():
+			var f := 0
+			if Tiles.is_wall(id):
+				f |= 1
+			if Tiles.light_of(id) > 0.0:
+				f |= 2
+			if Tiles.is_seed(id):
+				f |= 4
+			_draw_flags[id] = f
+	return _draw_flags
+
 func _draw() -> void:
+	var fl_tab := _flags()
+	var tex := Tiles.atlas()
+	var t_ms := Time.get_ticks_msec()
+	## Pass 1: background walls (dimmed so foreground reads clearly)
+	for y in range(H):
+		for x in range(W):
+			var wid := get_tile(x, y)
+			if wid > 0 and wid < 256 and (fl_tab[wid] & 1) != 0:
+				var wr := Rect2(x * Tiles.SIZE, y * Tiles.SIZE, Tiles.SIZE, Tiles.SIZE)
+				draw_texture_rect_region(tex, wr, Tiles.atlas_region(wid), Color(0.82, 0.82, 0.88))
+	## Pass 2: light glows, then every other tile sprite
 	for y in range(H):
 		for x in range(W):
 			var id := get_tile(x, y)
-			if id == Tiles.Id.AIR:
+			if id <= 0 or id >= 256:
+				continue
+			var f := fl_tab[id]
+			if (f & 1) != 0:
 				continue
 			var r := Rect2(x * Tiles.SIZE, y * Tiles.SIZE, Tiles.SIZE, Tiles.SIZE)
+			if (f & 2) != 0:
+				var glow := Tiles.light_of(id)
+				var flicker := 0.9 + 0.1 * sin(t_ms / 110.0 + x * 1.7 + y)
+				var gc := Tiles.color(id)
+				if id == Tiles.Id.TORCH:
+					gc = Color(1.0, 0.75, 0.2)
+				draw_circle(r.get_center(), 40.0 * glow * flicker, Color(gc.r, gc.g, gc.b, 0.10))
+				draw_circle(r.get_center(), 22.0 * glow * flicker, Color(gc.r, gc.g, gc.b, 0.16))
+			draw_texture_rect_region(tex, r, Tiles.atlas_region(id))
 			if id == Tiles.Id.TORCH:
-				draw_circle(r.get_center(), 22.0, Color(1.0, 0.75, 0.2, 0.18))
-				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 16)), Color(0.45, 0.28, 0.12))
-				var flicker := 0.85 + 0.15 * sin(Time.get_ticks_msec() / 90.0 + x + y)
-				draw_circle(r.position + Vector2(16, 12), 5.0 * flicker, Color(1.0, 0.85, 0.25, 0.95))
-				draw_circle(r.position + Vector2(16, 10), 3.0, Color(1.0, 0.45, 0.1, 0.9))
-				continue
-			var c := Tiles.color(id)
-			draw_rect(r, c)
-			draw_rect(r, c.darkened(0.25), false, 1.0)
-			if id == Tiles.Id.WOOD:
-				draw_line(r.position + Vector2(0, 10), r.position + Vector2(Tiles.SIZE, 10), c.darkened(0.35), 1.0)
-				draw_line(r.position + Vector2(0, 22), r.position + Vector2(Tiles.SIZE, 22), c.darkened(0.35), 1.0)
-			elif id == Tiles.Id.PLANK:
-				draw_line(r.position + Vector2(0, 8), r.position + Vector2(Tiles.SIZE, 8), c.darkened(0.3), 1.0)
-				draw_line(r.position + Vector2(0, 16), r.position + Vector2(Tiles.SIZE, 16), c.darkened(0.3), 1.0)
-				draw_line(r.position + Vector2(0, 24), r.position + Vector2(Tiles.SIZE, 24), c.darkened(0.3), 1.0)
-			elif id == Tiles.Id.SAND:
-				draw_circle(r.position + Vector2(8, 10), 2.0, c.darkened(0.15))
-				draw_circle(r.position + Vector2(22, 18), 2.5, c.darkened(0.2))
-			elif id == Tiles.Id.SEED or id == Tiles.Id.SEED_AZURE:
-				var stem := Color(0.2, 0.5, 0.2) if id == Tiles.Id.SEED else Color(0.2, 0.4, 0.65)
-				draw_rect(Rect2(r.position + Vector2(12, 16), Vector2(8, 16)), stem)
+				var fl := 0.85 + 0.15 * sin(t_ms / 90.0 + x + y)
+				draw_circle(r.position + Vector2(16, 9), 3.0 * fl, Color(1.0, 0.85, 0.3, 0.9))
+			elif (f & 4) != 0:
 				var key := "%d,%d" % [x, y]
 				if float(grow_boost.get(key, 1.0)) < 0.99:
 					draw_circle(r.position + Vector2(26, 8), 3.0, Color(0.6, 0.95, 0.3))
-			elif id == Tiles.Id.CROP:
-				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.95, 0.4, 0.6))
-				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.25, 0.55, 0.25))
-			elif id == Tiles.Id.CROP_AZURE:
-				draw_circle(r.get_center() + Vector2(0, -4), 10.0, Color(0.4, 0.55, 1.0))
-				draw_circle(r.get_center() + Vector2(-4, -6), 3.0, Color(0.75, 0.9, 1.0))
-				draw_rect(Rect2(r.position + Vector2(14, 14), Vector2(4, 18)), Color(0.2, 0.35, 0.55))
-			elif id == Tiles.Id.WORLD_LOCK:
-				draw_rect(Rect2(r.position + Vector2(6, 6), Vector2(20, 20)), Color(1.0, 0.85, 0.2))
-				draw_circle(r.get_center(), 6.0, Color(0.55, 0.35, 0.1))
-			elif id == Tiles.Id.WEATHER_MACHINE:
-				draw_rect(Rect2(r.position + Vector2(4, 8), Vector2(24, 24)), Color(0.25, 0.35, 0.5))
-				draw_rect(Rect2(r.position + Vector2(6, 10), Vector2(20, 14)), Color(0.4, 0.75, 1.0))
-				draw_circle(r.position + Vector2(16, 17), 5.0, Color(1.0, 0.9, 0.35))
-				draw_rect(Rect2(r.position + Vector2(10, 26), Vector2(12, 4)), Color(0.7, 0.75, 0.85))
 	## Break progress: cracks + a small bar on damaged tiles
 	for key in damage.keys():
 		var dd: Dictionary = damage[key]

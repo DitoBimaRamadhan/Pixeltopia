@@ -174,7 +174,7 @@ test('SERVER_INV steps 4-8 over two instances', { skip, timeout: 240000 }, async
     for (const c of dirt) { p1.sendJ({ t: 'punch', x: c.x, y: c.y }); await p1.waitFor((m) => m.t === 'tile' && m.x === c.x && m.y === c.y && m.id === 0); }
     await sleep(2500);
     const { rows } = await store._query("SELECT op_id, reason, delta FROM inventory_ledger WHERE user_id = $1 AND op_id LIKE 'drop:%' ORDER BY op_id", [ids.p1]);
-    assert.ok(rows.length >= 3 && rows.length <= 6, `drops ${rows.length}`);
+    assert.ok(rows.length >= 1 && rows.length <= 6, `drops ${rows.length}`);  // ~71% per Dirt break since v1.7.2; exactness is checked per row below
     let dirtGain = 0;
     for (const r of rows) {
       const [, u, w, seq] = r.op_id.split(':');

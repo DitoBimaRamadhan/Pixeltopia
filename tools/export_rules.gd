@@ -9,7 +9,8 @@ const InventoryScript = preload("res://scripts/inventory.gd")
 const WorldScript = preload("res://scripts/world.gd")
 
 const ID_MIN := -1
-const ID_MAX := 22  ## a couple of unknown ids past WORLD_LOCK (20)
+const ID_MAX := 70  ## a couple of unknown ids past the v1.8 content pack (21..68)
+const MC_ID_MAX := 22  ## Monte Carlo only for the base tiles (content drop chances are compared field by field)
 const MC_TRIALS := 20000
 const GEM_SAMPLES := 4000
 
@@ -49,13 +50,18 @@ func _tile_ids() -> Dictionary:
 	var out := {}
 	for k in Tiles.Id.keys():
 		out[k] = int(Tiles.Id[k])
+	for d in ContentData.TILES:
+		out[str(d["key"])] = int(d["id"])
 	return out
 
 func _tiles() -> Dictionary:
 	var out := {}
 	for id in range(ID_MIN, ID_MAX + 1):
 		out[str(id)] = {
-			"name": str(Tiles.NAMES.get(id, "")),
+			"name": Tiles.name_of(id),
+			"is_platform": Tiles.is_platform(id),
+			"is_door": Tiles.is_door(id),
+			"is_wall": Tiles.is_wall(id),
 			"is_solid": Tiles.is_solid(id),
 			"is_soil": Tiles.is_soil(id),
 			"is_placeable": Tiles.is_placeable(id),
@@ -140,7 +146,7 @@ func _new_world() -> Node2D:
 func _break_mc() -> Dictionary:
 	var out := {}
 	var w := _new_world()
-	for id in range(1, ID_MAX + 1):
+	for id in range(1, MC_ID_MAX + 1):
 		if Tiles.is_crop(id):
 			continue  ## crops are harvested (try_harvest), see _harvest_mc
 		var hist := {}
@@ -159,7 +165,7 @@ func _break_mc() -> Dictionary:
 func _harvest_mc() -> Dictionary:
 	var out := {}
 	var w := _new_world()
-	for id in range(1, ID_MAX + 1):
+	for id in range(1, MC_ID_MAX + 1):
 		if not Tiles.is_crop(id):
 			continue
 		var hist := {}

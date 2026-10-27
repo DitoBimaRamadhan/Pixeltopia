@@ -26,7 +26,27 @@ const RARITY_COLORS := {
 
 ## Catalog keyed by tile/item id (aligned with Tiles.Id).
 ## farmable: break → higher gem + seed chance; non-farmable → rarer seeds, weaker block drops.
+static var _catalog_cache: Dictionary = {}
+
 static func catalog() -> Dictionary:
+	if _catalog_cache.is_empty():
+		_catalog_cache = _base_catalog()
+		for d in ContentData.TILES:
+			var cid := int(d["id"])
+			_catalog_cache[cid] = {
+				"id": cid,
+				"name": str(d["name"]),
+				"description": str(d["desc"]),
+				"rarity": int(d["rarity"]),
+				"sell": int(d["sell"]),
+				"buy": int(d["buy"]),
+				"can_drop": true,
+				"farmable": bool(d.get("farmable", false)),
+				"seed_drop": int(d.get("seed_drop", -1)),
+			}
+	return _catalog_cache
+
+static func _base_catalog() -> Dictionary:
 	return {
 		Tiles.Id.DIRT: {
 			"id": Tiles.Id.DIRT,
@@ -99,7 +119,7 @@ static func catalog() -> Dictionary:
 			"name": "Torch",
 			"description": "Warm local light for dark nights.",
 			"rarity": Rarity.COMMON,
-			"sell": 3,
+			"sell": 2,  ## v1.8: was 3 (buy Wood 5 -> 2 Torches sold 6 = gem loop)
 			"buy": 10,
 			"can_drop": true,
 			"farmable": false,
@@ -256,7 +276,7 @@ static func get_info(id: int) -> Dictionary:
 		return cat[id]
 	return {
 		"id": id,
-		"name": Tiles.NAMES.get(id, "Unknown"),
+		"name": Tiles.name_of(id) if Tiles.name_of(id) != "" else "Unknown",
 		"description": "An unmarked Pixeltopia item.",
 		"rarity": Rarity.COMMON,
 		"sell": 1,

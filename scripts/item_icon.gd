@@ -33,10 +33,13 @@ static func make_cell(item_id: int, count: int, selected: bool, empty_label: Str
 	cell.add_child(root)
 
 	if item_id >= 0 and count > 0:
-		var icon := ColorRect.new()
+		var icon := TextureRect.new()
 		icon.size = Vector2(ICON, ICON)
 		icon.position = Vector2((CELL - 8.0 - ICON) * 0.5, 4.0)
-		icon.color = Tiles.color(item_id)
+		icon.texture = Tiles.icon_texture(item_id)
+		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		root.add_child(icon)
 		## Tiny highlight rim for readability
@@ -44,6 +47,7 @@ static func make_cell(item_id: int, count: int, selected: bool, empty_label: Str
 		rim.size = Vector2(ICON + 2.0, ICON + 2.0)
 		rim.position = icon.position - Vector2(1, 1)
 		rim.color = Items.rarity_color(item_id).darkened(0.25)
+		rim.color.a = 0.45
 		rim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		rim.z_index = -1
 		root.add_child(rim)
