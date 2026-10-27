@@ -1598,8 +1598,9 @@ func apply_pixeltopia_theme() -> void:
 		"Root/WeatherUI/Panel",
 		"Root/Backpack/Panel",
 	]:
-		if has_node(path):
-			UiT.apply_panel_container(get_node(path), true)
+		var pnode := get_node_or_null(path)
+		if pnode is PanelContainer:
+			UiT.apply_panel_container(pnode, true)
 	# Soft green clear color for menus feel
 	if has_node("Root/Pause"):
 		var pr: ColorRect = $Root/Pause

@@ -75,7 +75,8 @@ func _ensure_fx() -> void:
 	_fx_layer.name = "WeatherFX"
 	_fx_layer.z_index = 50
 	_fx_layer.set_script(load("res://scripts/weather_fx.gd"))
-	parent.add_child(_fx_layer)
+	## Weather is set up while its parent (Main) is still adding children: add the overlay next frame.
+	parent.add_child.call_deferred(_fx_layer)
 	if _fx_layer.has_method("bind"):
 		_fx_layer.bind(self)
 
