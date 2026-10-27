@@ -56,6 +56,26 @@ static func is_solid(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS or id == Id.STONE or id == Id.WOOD \
 		or id == Id.PLANK or id == Id.SAND or id == Id.WORLD_LOCK
 
+## v1.8 toughness: punches needed to break a tile (mirrored in server/lib/rules.js HITS).
+const HIT_RESET_SEC := 4.0  ## damage heals if the tile is not punched again within this time
+
+static func hits_to_break(id: int) -> int:
+	match id:
+		Id.AIR:
+			return 0
+		Id.DIRT, Id.GRASS:
+			return 3
+		Id.SAND:
+			return 2
+		Id.STONE:
+			return 5
+		Id.WOOD, Id.PLANK, Id.WEATHER_MACHINE:
+			return 4
+		Id.WORLD_LOCK:
+			return 6
+		_:
+			return 1
+
 static func is_soil(id: int) -> bool:
 	return id == Id.DIRT or id == Id.GRASS
 

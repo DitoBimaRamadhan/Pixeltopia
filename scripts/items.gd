@@ -299,10 +299,19 @@ static func seed_drop_for(id: int) -> int:
 	return int(get_info(id).get("seed_drop", -1))
 
 ## Chance tables for break drops (0.0–1.0). Rarer farmables drip slightly more.
+## v1.8 anti-farm: cheap basic blocks (Dirt/Grass/Sand) drop much less, so a place/break loop
+## consumes more blocks than it earns back. Mirrored in server/lib/rules.js (BASIC_BLOCKS).
+static func is_basic_block(id: int) -> bool:
+	return id == Tiles.Id.DIRT or id == Tiles.Id.GRASS or id == Tiles.Id.SAND
+
 static func block_drop_chance(id: int) -> float:
+	if is_basic_block(id):
+		return 0.6
 	return 0.92 if is_farmable(id) else 0.38
 
 static func seed_drop_chance(id: int) -> float:
+	if is_basic_block(id):
+		return 0.12
 	if not is_farmable(id):
 		return 0.08
 	match rarity(id):
@@ -314,6 +323,8 @@ static func seed_drop_chance(id: int) -> float:
 			return 0.42
 
 static func gem_drop_chance(id: int) -> float:
+	if is_basic_block(id):
+		return 0.18
 	if not is_farmable(id):
 		return 0.12
 	match rarity(id):
@@ -327,6 +338,8 @@ static func gem_drop_chance(id: int) -> float:
 static func gem_drop_amount(id: int, rng: RandomNumberGenerator) -> int:
 	if not is_farmable(id):
 		return 1
+	if is_basic_block(id):
+		return rng.randi_range(1, 1)
 	match rarity(id):
 		Rarity.EPIC:
 			return rng.randi_range(3, 6)

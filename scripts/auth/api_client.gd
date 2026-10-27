@@ -6,7 +6,7 @@ signal request_finished(ok: bool, data: Dictionary, error: String)
 
 ## Protocol version of this build (v1.7.0 = 2: server-authoritative inventory). Servers with
 ## MIN_PROTO above this answer 426 {update: true, url}.
-const CLIENT_PROTO := 2
+const CLIENT_PROTO := 3
 
 var _http: HTTPRequest
 var _busy: bool = false

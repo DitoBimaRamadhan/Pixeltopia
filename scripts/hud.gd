@@ -76,7 +76,7 @@ func set_dirty(v: bool) -> void:
 
 func _ready() -> void:
 	title.text = "Pixeltopia"
-	hint.text = "A/D · Jump · LMB/RMB · Q drop · C craft · Y splice · B bag · P store · L badges · Esc"
+	_apply_hint()
 	inv.changed.connect(_on_inv_changed)
 	if inv.has_signal("gems_changed"):
 		inv.gems_changed.connect(_on_gems_changed)
@@ -114,6 +114,8 @@ func _ready() -> void:
 	_build_achieve_ui()
 	_add_badge_btn()
 	apply_pixeltopia_theme()
+	get_viewport().size_changed.connect(_apply_safe_area)
+	_apply_safe_area.call_deferred()
 	if player.has_signal("weather_machine_used"):
 		player.weather_machine_used.connect(open_weather)
 	## Store opens from HUD button / key P (Mira NPC removed).
@@ -136,6 +138,83 @@ func _setup_gems_label() -> void:
 func _on_gems_changed(amount: int) -> void:
 	if _gems_lbl:
 		_gems_lbl.text = "Gems: %d" % amount
+
+const HINT_OFFLINE := "A/D · W jump · hold LMB punch · RMB place · Q drop · C craft · Y splice · B bag · P store · L badges · Esc"
+const HINT_ONLINE := "A/D · W jump · hold LMB punch · RMB place · C craft · Y splice · B bag · P store · L badges · Enter chat · Esc"
+var online_mode: bool = false
+
+func _apply_hint() -> void:
+	if not hint:
+		return
+	if DisplayServer.is_touchscreen_available():
+		hint.text = "Tahan Punch untuk menghancurkan blok · Place untuk membangun" + ("" if online_mode else " · Drop")
+	else:
+		hint.text = HINT_ONLINE if online_mode else HINT_OFFLINE
+
+## v1.8 safe area: keep HUD controls clear of notches / punch-holes / rounded corners.
+## Root shrinks to the safe rect (in canvas units); full-screen dim overlays grow back over the margins.
+## PIXELTOPIA_FAKE_SAFE="l,t,r,b" (canvas px) simulates a cutout on desktop for testing.
+var safe_margins: Vector4 = Vector4.ZERO  ## left, top, right, bottom
+
+func _safe_margins() -> Vector4:
+	var fake := OS.get_environment("PIXELTOPIA_FAKE_SAFE")
+	if fake != "":
+		var p := fake.split(",")
+		if p.size() == 4:
+			return Vector4(float(p[0]), float(p[1]), float(p[2]), float(p[3]))
+	if not (OS.has_feature("mobile") or OS.has_feature("android") or OS.has_feature("ios")):
+		return Vector4.ZERO
+	var win := Vector2(DisplayServer.window_get_size())
+	var safe := DisplayServer.get_display_safe_area()
+	var vis := get_viewport().get_visible_rect().size
+	if win.x <= 0.0 or win.y <= 0.0 or vis.x <= 0.0 or safe.size.x <= 0 or safe.size.y <= 0:
+		return Vector4.ZERO
+	var win_pos := Vector2(DisplayServer.window_get_position())
+	var sx := win.x / vis.x
+	var sy := win.y / vis.y
+	var l := maxf(0.0, float(safe.position.x) - win_pos.x) / sx
+	var t := maxf(0.0, float(safe.position.y) - win_pos.y) / sy
+	var r := maxf(0.0, win_pos.x + win.x - float(safe.end.x)) / sx
+	var b := maxf(0.0, win_pos.y + win.y - float(safe.end.y)) / sy
+	## Ignore absurd values (some devices report the whole screen as unsafe while rotating).
+	if l + r > vis.x * 0.4 or t + b > vis.y * 0.4:
+		return Vector4.ZERO
+	return Vector4(l, t, r, b)
+
+func _apply_safe_area() -> void:
+	var m := _safe_margins()
+	safe_margins = m
+	var root: Control = get_node_or_null("Root")
+	if root == null:
+		return
+	root.offset_left = m.x
+	root.offset_top = m.y
+	root.offset_right = -m.z
+	root.offset_bottom = -m.w
+	for c in root.get_children():
+		if c is ColorRect and is_equal_approx(c.anchor_left, 0.0) and is_equal_approx(c.anchor_top, 0.0) \
+				and is_equal_approx(c.anchor_right, 1.0) and is_equal_approx(c.anchor_bottom, 1.0):
+			c.offset_left = -m.x
+			c.offset_top = -m.y
+			c.offset_right = m.z
+			c.offset_bottom = m.w
+
+## v1.8: online the server owns world + inventory, so ground drops and loading a local save are offline-only.
+## Hide those controls instead of showing buttons that only answer "offline only".
+func set_online_mode(on: bool) -> void:
+	online_mode = on
+	_apply_hint()
+	var load_btn := get_node_or_null("Root/Pause/Panel/CircleActions/BtnLoad")
+	if load_btn == null:
+		load_btn = get_node_or_null("Root/Pause/Panel/BtnLoad")
+	if load_btn:
+		load_btn.visible = not on
+	var drop_touch := get_node_or_null("Root/TouchPad/BtnDrop")
+	if drop_touch:
+		drop_touch.visible = not on
+	var drop_one := find_child("BtnDropOne", true, false)
+	if drop_one:
+		drop_one.visible = not on
 
 func _add_drop_touch_btn() -> void:
 	if not has_node("Root/TouchPad"):
@@ -401,7 +480,9 @@ func _setup_touch() -> void:
 	jump.pressed.connect(func() -> void:
 		player.request_touch_jump()
 		Sfx.play_ui())
-	punch.pressed.connect(_touch_punch)
+	## v1.8: hold Punch to keep hitting (blocks need several hits).
+	punch.button_down.connect(func() -> void: player.set_touch_punch(true))
+	punch.button_up.connect(func() -> void: player.set_touch_punch(false))
 	place.pressed.connect(_touch_place)
 	prev.pressed.connect(func() -> void:
 		inv.select((inv.selected - 1 + inv.hotbar_len()) % inv.hotbar_len())
@@ -409,11 +490,6 @@ func _setup_touch() -> void:
 	nextb.pressed.connect(func() -> void:
 		inv.select((inv.selected + 1) % inv.hotbar_len())
 		Sfx.play_ui())
-
-func _touch_punch() -> void:
-	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
-	player.touch_punch_at(ahead)
-	Sfx.play_ui()
 
 func _touch_place() -> void:
 	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
@@ -512,6 +588,7 @@ func _setup_backpack_ui() -> void:
 		actions.add_child(equip)
 		actions.add_child(use_btn)
 		actions.add_child(drop_btn)
+		drop_btn.visible = not online_mode
 		## Insert above Status
 		var status_i := vbox.get_node("Status").get_index()
 		vbox.add_child(detail)

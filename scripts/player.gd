@@ -7,6 +7,7 @@ const JUMP_V := -320.0
 const GRAVITY := 900.0
 const REACH := 3  ## tiles
 const BODY := Vector2(20, 28)
+const HIT_INTERVAL := 0.18  ## seconds between punches (hold to keep hitting); server allows ~7/s
 
 @onready var world: Node2D = get_parent().get_node("World")
 @onready var inv: Node = get_parent().get_node("Inventory")
@@ -25,6 +26,9 @@ var _touch_jump: bool = false
 var _shake_t: float = 0.0
 var _pickup_cd: float = 0.0
 var net: Node = null  ## GameSocket when online
+var _hit_cd: float = 0.0
+var _touch_punch_held: bool = false
+var _mouse_hold: bool = false  ## LMB went down on the world (not on a HUD control)
 
 signal weather_machine_used
 signal shop_used
@@ -100,6 +104,37 @@ func _physics_process(delta: float) -> void:
 	_footsteps(delta, dir)
 	_try_auto_pickup(delta)
 	_update_shake(delta)
+	_hold_punch(delta)
+
+## v1.8: blocks take several hits. Holding LMB (or the touch Punch button) keeps hitting.
+func _hold_punch(delta: float) -> void:
+	_hit_cd = maxf(_hit_cd - delta, 0.0)
+	if paused or _hit_cd > 0.0:
+		return
+	var target := Vector2.INF
+	if _touch_punch_held:
+		target = global_position + Vector2(facing * Tiles.SIZE * 1.2, 0)
+	elif _mouse_hold:
+		if not Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT) or DisplayServer.is_touchscreen_available():
+			_mouse_hold = false
+			return
+		target = get_global_mouse_position()
+	if target == Vector2.INF:
+		return
+	var t: Vector2i = world.world_to_tile(target)
+	if not _in_reach(t):
+		return
+	var id: int = world.get_tile(t.x, t.y)
+	if id == Tiles.Id.AIR or _npc_at(t) != "" or id == Tiles.Id.WEATHER_MACHINE or Tiles.is_seed(id):
+		return  # holding only repeats real hits: never re-opens menus or pops growing sprouts
+	_punch_or_use(t)
+
+func set_touch_punch(held: bool) -> void:
+	_touch_punch_held = held
+	if held and _hit_cd <= 0.0:
+		## First press acts like the old tap (also opens NPC / Weather Machine); holding then repeats hits.
+		touch_punch_at(global_position + Vector2(facing * Tiles.SIZE * 1.2, 0))
+		_hit_cd = maxf(_hit_cd, HIT_INTERVAL)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if paused:
@@ -109,14 +144,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			_drop_selected()
 			get_viewport().set_input_as_handled()
 			return
+	if event is InputEventMouseButton and not event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		_mouse_hold = false
 	if event is InputEventMouseButton and event.pressed:
 		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_LEFT:
+			_mouse_hold = true
 		var mouse := get_global_mouse_position()
 		var t: Vector2i = world.world_to_tile(mouse)
 		if not _in_reach(t):
 			return
 		if mb.button_index == MOUSE_BUTTON_LEFT:
-			_punch_or_use(t)
+			if _hit_cd <= 0.0:
+				_punch_or_use(t)
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			_place(t)
 
@@ -240,6 +280,7 @@ func _punch_or_use(t: Vector2i) -> void:
 			Sfx.play_ui()
 		return
 	if Tiles.is_crop(id):
+		_hit_cd = HIT_INTERVAL
 		if _net_online():
 			net.send_punch(t.x, t.y)
 			Sfx.play_harvest()
@@ -254,9 +295,21 @@ func _punch_or_use(t: Vector2i) -> void:
 			world_edited.emit()
 		return
 	if id != Tiles.Id.AIR:
+		_hit_cd = HIT_INTERVAL
 		if _net_online():
+			## Server counts hits (v1.8) and answers with `hit` progress or the broken `tile`.
+			## Predict the crack locally so it feels instant; the server value overrides it.
+			var will_break: bool = world.register_hit(t.x, t.y)
 			net.send_punch(t.x, t.y)
-			Sfx.play_break()
+			if will_break:
+				Sfx.play_break()
+			else:
+				Sfx.play_footstep()
+				_shake(0.05, 1.5)
+			return
+		if not world.register_hit(t.x, t.y):
+			Sfx.play_footstep()
+			_shake(0.05, 1.5)
 			return
 		var br: Dictionary = world.break_tile(t.x, t.y, true, inv)
 		_announce_break_rewards(br)

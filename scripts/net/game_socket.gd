@@ -21,8 +21,9 @@ signal reward(data: Dictionary)
 signal plant_update(data: Dictionary)
 signal quest_state(data: Dictionary)
 signal update_required(message: String, url: String)
+signal tile_hit(data: Dictionary)  ## v1.8 server break progress {x, y, id, hits, need, by}
 
-const CLIENT_PROTO := 2
+const CLIENT_PROTO := 3
 
 var is_guest: bool = true
 var storage: String = ""
@@ -132,6 +133,8 @@ func _handle(raw: String) -> void:
 				lock_owner_id = str(msg.get("lockOwnerId", "") or "")
 				lock_owner_name = str(msg.get("lockOwnerName", "") or "")
 			tile_update.emit(msg)
+		"hit":
+			tile_hit.emit(msg)
 		"snap":
 			snap.emit(msg.get("n", []))
 		"player_join":

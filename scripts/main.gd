@@ -26,7 +26,7 @@ const PROFILE_SAVE_SECS := 20.0
 func _ready() -> void:
 	var _who := Session.username if Session and Session.username else "player"
 	var _mode := "offline" if Session and Session.offline_mode else "online"
-	DisplayServer.window_set_title("Pixeltopia — v1.7 (%s / %s)" % [_who, _mode])
+	DisplayServer.window_set_title("Pixeltopia — v%s (%s / %s)" % [str(ProjectSettings.get_setting("application/config/version", "")), _who, _mode])
 	hud.pause_changed.connect(_on_pause)
 	hud.save_requested.connect(save_game)
 	hud.load_requested.connect(load_game)
@@ -74,6 +74,8 @@ func _setup_multiplayer() -> void:
 		if hud.has_method("set_mp_status"):
 			hud.set_mp_status("Offline")
 		return
+	if hud.has_method("set_online_mode"):
+		hud.set_online_mode(true)
 	net = Node.new()
 	net.name = "GameSocket"
 	net.set_script(load("res://scripts/net/game_socket.gd"))
@@ -87,6 +89,9 @@ func _setup_multiplayer() -> void:
 	)
 	net.world_state.connect(_on_world_state)
 	net.tile_update.connect(_on_tile_update)
+	net.tile_hit.connect(func (m):
+		world.set_hit(int(m.get("x", -1)), int(m.get("y", -1)), int(m.get("hits", 0)), int(m.get("need", 0)))
+	)
 	net.snap.connect(func (arr): remotes.apply_snap(arr))
 	net.player_join.connect(func (p): remotes.add_player(p))
 	net.player_left.connect(func (m): remotes.remove_player(str(m.get("id", ""))))

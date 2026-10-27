@@ -22,6 +22,8 @@ var world_seed: int = 0
 var spawn_tile: Vector2i = Vector2i(32, 10)
 ## Friendly NPCs (tile positions). Original characters — not from any commercial game.
 var npcs: Array = []  # [{id, role, name, x, y}]
+## v1.8 multi-hit breaking: key "x,y" -> {"hits": int, "need": int, "t": msec of last hit}
+var damage: Dictionary = {}
 
 func _ready() -> void:
 	grid.resize(W * H)
@@ -29,7 +31,54 @@ func _ready() -> void:
 
 func _process(_delta: float) -> void:
 	_tick_growth()
+	_expire_damage()
 	queue_redraw()
+
+## Count one punch on (x, y). Returns true when this hit breaks the tile (hits >= Tiles.hits_to_break).
+func register_hit(x: int, y: int) -> bool:
+	var id := get_tile(x, y)
+	var need := Tiles.hits_to_break(id)
+	if need <= 0:
+		return false
+	var key := "%d,%d" % [x, y]
+	var d: Dictionary = damage.get(key, {})
+	var now := Time.get_ticks_msec()
+	var hits := int(d.get("hits", 0))
+	if d.is_empty() or int(d.get("id", -1)) != id or now - int(d.get("t", 0)) > int(Tiles.HIT_RESET_SEC * 1000.0):
+		hits = 0
+	hits += 1
+	if hits >= need:
+		damage.erase(key)
+		return true
+	damage[key] = {"hits": hits, "need": need, "t": now, "id": id}
+	queue_redraw()
+	return false
+
+## Server-confirmed progress (online `hit` message).
+func set_hit(x: int, y: int, hits: int, need: int) -> void:
+	if not in_bounds(x, y) or need <= 0:
+		return
+	var key := "%d,%d" % [x, y]
+	if hits <= 0 or hits >= need:
+		damage.erase(key)
+	else:
+		damage[key] = {"hits": hits, "need": need, "t": Time.get_ticks_msec(), "id": get_tile(x, y)}
+	queue_redraw()
+
+func hit_progress(x: int, y: int) -> float:
+	var d: Dictionary = damage.get("%d,%d" % [x, y], {})
+	if d.is_empty():
+		return 0.0
+	return float(d.get("hits", 0)) / maxf(1.0, float(d.get("need", 1)))
+
+func _expire_damage() -> void:
+	if damage.is_empty():
+		return
+	var now := Time.get_ticks_msec()
+	var limit := int(Tiles.HIT_RESET_SEC * 1000.0)
+	for key in damage.keys():
+		if now - int(damage[key].get("t", 0)) > limit:
+			damage.erase(key)
 
 func idx(x: int, y: int) -> int:
 	return y * W + x
@@ -47,6 +96,7 @@ func set_tile(x: int, y: int, id: int) -> void:
 		return
 	grid[idx(x, y)] = id
 	var key := "%d,%d" % [x, y]
+	damage.erase(key)
 	if not Tiles.is_seed(id):
 		plant_times.erase(key)
 		grow_boost.erase(key)
@@ -63,6 +113,7 @@ func _surface_y(rng: RandomNumberGenerator, x: int, ground: int) -> int:
 	return ground - bump
 
 func _generate(seed_val: int = -1) -> void:
+	damage.clear()
 	var rng := RandomNumberGenerator.new()
 	if seed_val < 0:
 		world_seed = int(Time.get_unix_time_from_system()) ^ (Time.get_ticks_msec() * 2654435761)
@@ -397,6 +448,7 @@ func from_save(data: Dictionary) -> bool:
 		return false
 	for i in range(arr.size()):
 		grid[i] = int(arr[i])
+	damage.clear()
 	plant_times.clear()
 	if data.has("plant_times"):
 		var plants: Dictionary = data["plant_times"]
@@ -482,6 +534,29 @@ func _draw() -> void:
 				draw_rect(Rect2(r.position + Vector2(6, 10), Vector2(20, 14)), Color(0.4, 0.75, 1.0))
 				draw_circle(r.position + Vector2(16, 17), 5.0, Color(1.0, 0.9, 0.35))
 				draw_rect(Rect2(r.position + Vector2(10, 26), Vector2(12, 4)), Color(0.7, 0.75, 0.85))
+	## Break progress: cracks + a small bar on damaged tiles
+	for key in damage.keys():
+		var dd: Dictionary = damage[key]
+		var parts: PackedStringArray = str(key).split(",")
+		if parts.size() != 2:
+			continue
+		var dx := int(parts[0])
+		var dy := int(parts[1])
+		var frac := clampf(float(dd.get("hits", 0)) / maxf(1.0, float(dd.get("need", 1))), 0.0, 1.0)
+		var rr := Rect2(dx * Tiles.SIZE, dy * Tiles.SIZE, Tiles.SIZE, Tiles.SIZE)
+		draw_rect(rr, Color(0, 0, 0, 0.18 + 0.32 * frac))
+		var crack := Color(0.08, 0.06, 0.05, 0.85)
+		var cc := rr.get_center()
+		draw_line(cc, cc + Vector2(-9, -8) * (0.5 + frac), crack, 2.0)
+		draw_line(cc, cc + Vector2(8, -6) * (0.5 + frac), crack, 2.0)
+		if frac >= 0.34:
+			draw_line(cc, cc + Vector2(-6, 10) * (0.4 + frac), crack, 2.0)
+		if frac >= 0.6:
+			draw_line(cc, cc + Vector2(10, 7) * (0.4 + frac), crack, 2.0)
+			draw_line(cc + Vector2(-9, -8), cc + Vector2(-13, -2), crack, 1.5)
+		var bar := Rect2(rr.position + Vector2(3, -6), Vector2(Tiles.SIZE - 6, 4))
+		draw_rect(bar, Color(0, 0, 0, 0.6))
+		draw_rect(Rect2(bar.position, Vector2(bar.size.x * frac, bar.size.y)), Color(1.0, 0.82, 0.3))
 	## Ground item drops (rarity-tinted floaties)
 	for d in drops:
 		var id2: int = int(d["id"])
