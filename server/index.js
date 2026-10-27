@@ -17,6 +17,7 @@ const rules = require('./lib/rules');
 const { createWorldSync } = require('./lib/world_sync');
 const { createStore } = require('./lib/store');
 const invServer = require('./lib/inv_server');
+const abuse = require('./lib/abuse');
 
 // Load server/.env (gitignored) without overriding real env vars from the host.
 (function loadDotEnv() {
@@ -56,11 +57,16 @@ const MAINTENANCE_MS = 5 * 60 * 1000;
 // SERVER_INV=1. With it on the server owns every inventory change online: wallets in Postgres for
 // accounts, a session-only kit for guests; client inventory writes (inv_sync / profile inventory) are ignored.
 const SERVER_INV = process.env.SERVER_INV === '1';
-// Clients older than MIN_PROTO (v1.7.0 sends proto=2) are refused with an "update" message (0 = allow all).
-const CLIENT_PROTO = 2;
+// Clients older than MIN_PROTO (v1.7.0/1.7.1 send proto=2, v1.7.2 sends 3) are refused with an "update" message (0 = allow all).
+const CLIENT_PROTO = 3;
 const MIN_PROTO = Math.max(0, Number(process.env.MIN_PROTO || 0) | 0);
 const UPDATE_URL = process.env.UPDATE_URL || 'https://github.com/DitoBimaRamadhan/Pixeltopia/releases/latest';
-const UPDATE_MSG = `Versi game kamu sudah lama. Update ke Pixeltopia v1.7.0 di ${UPDATE_URL}`;
+const UPDATE_MSG = `Versi game kamu sudah lama. Update Pixeltopia ke versi terbaru di ${UPDATE_URL}`;
+// v1.8 anti-abuse (lib/abuse.js). Client punches at most ~5.5/s (hold) and REACH = 3 tiles.
+const PUNCH_RATE = 7, PUNCH_BURST = 10;
+const PLACE_RATE = 8, PLACE_BURST = 12;
+const REACH_TILES = 3, REACH_SLACK = 2;
+const RATE_NOTICE_MS = 3000;
 const clientProto = (v) => { const n = Number(v); return Number.isFinite(n) ? n | 0 : 0; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -449,6 +455,16 @@ function safeSend(ws, obj) {
   if (!ws || ws.readyState !== 1) return;
   try { ws.send(JSON.stringify(obj)); } catch { /* ignore */ }
 }
+/** Drop a rate-limited action; tell the player at most every RATE_NOTICE_MS and log the count. */
+function rateLimited(player, kind) {
+  player.rateDrops++;
+  const now = Date.now();
+  if (now - player.rateNoticeAt < RATE_NOTICE_MS) return;
+  player.rateNoticeAt = now;
+  console.warn(`[rate] ${kind} limited user=${player.id} drops=${player.rateDrops}`);
+  safeSend(player.ws, { t: 'error', error: 'Pelan-pelan! Terlalu cepat.', rate: kind });
+}
+
 function broadcastWorld(world, obj, exceptId) {
   if (!world) return;
   for (const p of world.players.values()) {
@@ -769,6 +785,12 @@ wss.on('connection', (ws, req) => {
   // Guests (SERVER_INV): session-only kit, starter minus the World Lock; reset on every connect, never saved.
   if (SERVER_INV && !player.authed) player.guestInv = invServer.createGuestWallet();
   player.opCounter = 0;
+  player.punchBucket = abuse.createBucket(PUNCH_RATE, PUNCH_BURST);
+  player.placeBucket = abuse.createBucket(PLACE_RATE, PLACE_BURST);
+  player.hits = abuse.createHitTracker(rules.HIT_RESET_SEC * 1000);
+  player.chatGuard = abuse.createChatGuard({ perSec: 0.8, burst: 5 });
+  player.rateNoticeAt = 0;
+  player.rateDrops = 0;
   ws._player = player;
   shard.connections.add(ws);
   shard.players = shard.connections.size;
@@ -870,6 +892,18 @@ wss.on('connection', (ws, req) => {
     const world = player.worldName ? worlds.getWorld(player.worldName) : null;
     if (t === 'punch') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
+      if (!player.punchBucket.take()) return rateLimited(player, 'punch');
+      const x = Number(msg.x), y = Number(msg.y);
+      if (!Number.isInteger(x) || !Number.isInteger(y) || x < 0 || y < 0 || x >= worlds.W || y >= worlds.H) return;
+      if (!abuse.inReach(player.x, player.y, x, y, REACH_TILES, REACH_SLACK)) return safeSend(ws, { t: 'error', error: 'Terlalu jauh.' });
+      const cur = world.grid[y * worlds.W + x] | 0;
+      if (cur === rules.TILE.AIR) return;
+      // Multi-hit breaking: only the last hit becomes a world event. Locked tiles skip straight to the
+      // reducer so the player gets the usual "locked" error on the first hit.
+      if (worlds.canEdit(world, player)) {
+        const h = player.hits.hit(world.name, x, y, cur, rules.hitsToBreak(cur));
+        if (!h.done) { broadcastWorld(world, { t: 'hit', x, y, id: cur, hits: h.hits, need: h.need, by: player.id }); return; }
+      }
       const ev = { kind: 'punch', actorId: player.id, actorName: player.username, x: msg.x, y: msg.y };
       if (SERVER_INV) { if (player.authed) ev.invCredit = true; else ev.guest = true; }
       const r = sync.submit(world, ev);
@@ -886,6 +920,8 @@ wss.on('connection', (ws, req) => {
     if (t === 'place' || t === 'fertilize') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
       const fert = t === 'fertilize';
+      if (!player.placeBucket.take()) return rateLimited(player, t);
+      if (!abuse.inReach(player.x, player.y, Number(msg.x), Number(msg.y), REACH_TILES, REACH_SLACK)) return safeSend(ws, { t: 'error', error: 'Terlalu jauh.' });
       if (fert && !SERVER_INV) return safeSend(ws, { t: 'error', error: 'Pupuk online belum aktif.' });
       const id = fert ? rules.TILE.FERTILIZER : msg.id | 0;
       const ev = fert
@@ -935,6 +971,18 @@ wss.on('connection', (ws, req) => {
       let text = String(msg.text || '').replace(/[\r\n\t]/g, ' ').trim();
       if (!text) return;
       if (text.length > MAX_CHAT_LEN) text = text.slice(0, MAX_CHAT_LEN);
+      const sys = (txt) => safeSend(ws, { t: 'chat', from: 'SYSTEM', id: 'system', text: txt, world: world.name, ts: Date.now() });
+      const g = player.chatGuard.check(text);
+      if (!g.ok) {
+        if (g.reason === 'muted') return sys(`Kamu di-mute ${Math.ceil(g.retryMs / 1000)} detik karena spam.`);
+        return sys(g.reason === 'repeat' ? 'Jangan kirim pesan yang sama berulang-ulang.' : 'Terlalu cepat. Tunggu sebentar sebelum chat lagi.');
+      }
+      const filtered = abuse.filterChat(text);
+      if (filtered.hits) {
+        text = filtered.text;
+        const m = player.chatGuard.strike();
+        if (m) sys(`Jaga bahasa ya. Kamu di-mute ${Math.ceil(m / 1000)} detik.`);
+      }
       const cmd = text.match(/^\/(access|unaccess|accesslist)\b\s*([A-Za-z0-9_]*)/i);
       if (cmd) { await handleAccessCommand(player, world, cmd[1].toLowerCase(), cmd[2]); return; }
       const line = { t: 'chat', from: player.username, id: player.id, text, world: world.name, ts: Date.now() };

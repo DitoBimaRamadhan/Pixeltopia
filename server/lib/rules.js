@@ -106,13 +106,19 @@ const seedDropFor = (id) => getInfo(id).seedDrop;
 const storeStock = () => Object.values(CATALOG).filter((i) => i.buy >= 0).map((i) => i.id).sort((a, b) => a - b);
 
 // ------------------------------------------------------------------ drop chances (items.gd)
-const blockDropChance = (id) => (isFarmable(id) ? 0.92 : 0.38);
+// v1.8 anti-farm: cheap basic blocks (Dirt/Grass/Sand) drop much less, so a place/break loop
+// consumes more blocks than it earns back (expected value per break < the block's Store price).
+const BASIC_BLOCKS = new Set([T.DIRT, T.GRASS, T.SAND]);
+const isBasicBlock = (id) => BASIC_BLOCKS.has(id);
+const blockDropChance = (id) => (isBasicBlock(id) ? 0.6 : isFarmable(id) ? 0.92 : 0.38);
 function seedDropChance(id) {
+  if (isBasicBlock(id)) return 0.12;
   if (!isFarmable(id)) return 0.08;
   const r = rarity(id);
   return r === R.EPIC ? 0.55 : r === R.RARE ? 0.48 : 0.42;
 }
 function gemDropChance(id) {
+  if (isBasicBlock(id)) return 0.18;
   if (!isFarmable(id)) return 0.12;
   const r = rarity(id);
   return r === R.EPIC ? 0.75 : r === R.RARE ? 0.65 : 0.55;
@@ -120,9 +126,19 @@ function gemDropChance(id) {
 /** Inclusive [min, max] of Items.gem_drop_amount. */
 function gemDropRange(id) {
   if (!isFarmable(id)) return [1, 1];
+  if (isBasicBlock(id)) return [1, 1];
   const r = rarity(id);
   return r === R.EPIC ? [3, 6] : r === R.RARE ? [2, 4] : [1, 3];
 }
+
+// ------------------------------------------------------------------ toughness (tiles.gd hits_to_break)
+// Punches needed to break a tile (v1.8). Seeds/crops/torches pop in one hit.
+const HITS = { [T.DIRT]: 3, [T.GRASS]: 3, [T.SAND]: 2, [T.STONE]: 5, [T.WOOD]: 4, [T.PLANK]: 4,
+  [T.WEATHER_MACHINE]: 4, [T.WORLD_LOCK]: 6 };
+/** Tiles.hits_to_break: 0 for AIR, else >= 1. */
+const hitsToBreak = (id) => (id === T.AIR ? 0 : HITS[id] ?? 1);
+/** Tiles.HIT_RESET_SEC: damage on a tile heals if it is not punched again within this many seconds. */
+const HIT_RESET_SEC = 4;
 
 // ------------------------------------------------------------------ rng helpers
 /** Godot RandomNumberGenerator.randf equivalent for our rng contract. */
@@ -258,6 +274,7 @@ module.exports = {
   TILE, TILE_NAMES, RARITY, WORLD_W, WORLD_H, FERTILIZER_FACTOR,
   isSolid, isSoil, isPlaceable, isSeed, isCrop, isUsableItem, seedForCrop, cropForSeed, growSeconds, canPlace,
   CATALOG, isKnownItem, getInfo, rarity, sellPrice, buyPrice, canDrop, isFarmable, seedDropFor, storeStock,
+  BASIC_BLOCKS, isBasicBlock, hitsToBreak, HIT_RESET_SEC,
   blockDropChance, seedDropChance, gemDropChance, gemDropRange, gemDropAmount, randf, randiRange,
   rollBreak, rollHarvest, HARVEST_EXTRA_SEED_CHANCE,
   RECIPES, recipeById, SPLICES, spliceKey, spliceResult, ALL_SEED_IDS, QUESTS, questById,

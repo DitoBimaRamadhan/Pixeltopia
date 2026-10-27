@@ -1,6 +1,6 @@
 'use strict';
 /**
- * Steps 4-8 end-to-end: two real server processes (SERVER_INV=1, MIN_PROTO=2) on one Postgres.
+ * Steps 4-8 end-to-end: two real server processes (SERVER_INV=1, MIN_PROTO=3) on one Postgres.
  * Drops exactly once, harvest + fertilize, craft/splice/shop, quest claims, atomic trades across
  * instances, guests, proto gate. Needs TEST_DATABASE_URL (never DATABASE_URL, never the prod host).
  * Test accounts are zz<rand> users; all their rows (and test worlds/trades) are deleted afterwards.
@@ -52,17 +52,34 @@ async function post(base, p, body) {
   const r = await fetch(base + p, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
   return { status: r.status, json: await r.json() };
 }
-function connect(base, token, proto = 2) {
+function connect(base, token, proto = 3) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/ws?${proto ? `proto=${proto}&` : ''}${token ? `token=${encodeURIComponent(token)}` : ''}`);
     ws.inbox = [];
-    ws.on('message', (m) => { const o = JSON.parse(String(m)); if (o.t !== 'snap') ws.inbox.push(o); });
+    // v1.8: the server checks reach and needs several hits per block. Edits first "walk" to the tile, and
+    // a punch keeps hitting (spaced under the rate limit) while the server answers with `hit` progress.
+    ws.punching = new Set();
+    ws.on('message', (m) => {
+      const o = JSON.parse(String(m));
+      if (o.t === 'snap') return;
+      ws.inbox.push(o);
+      const k = `${o.x},${o.y}`;
+      if (o.t === 'hit' && ws.punching.has(k)) setTimeout(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'punch', x: o.x, y: o.y })); }, 160);
+      else if ((o.t === 'tile' || o.t === 'error') && ws.punching.has(k)) ws.punching.delete(k);
+      else if (o.t === 'error') ws.punching.clear();
+    });
     ws.waitFor = async (pred, ms = 15000) => {
       const t0 = Date.now();
       while (Date.now() - t0 < ms) { const m = ws.inbox.find(pred); if (m) return m; await sleep(25); }
       throw new Error('timeout waiting for message');
     };
-    ws.sendJ = (o) => ws.send(JSON.stringify(o));
+    ws.sendJ = (o) => {
+      if ((o.t === 'punch' || o.t === 'place' || o.t === 'fertilize') && Number.isInteger(o.x)) {
+        ws.send(JSON.stringify({ t: 'move', tx: o.x, ty: o.y }));
+        if (o.t === 'punch') ws.punching.add(`${o.x},${o.y}`);
+      }
+      ws.send(JSON.stringify(o));
+    };
     ws.closeCode = null; ws.on('close', (c) => { ws.closeCode = c; });
     ws.on('open', () => resolve(ws)); ws.on('error', reject);
   });
@@ -99,18 +116,23 @@ test('SERVER_INV steps 4-8 over two instances', { skip, timeout: 240000 }, async
     await store.close();
   });
 
-  const [A, B] = await Promise.all([startServer('A', { SERVER_INV: '1', MIN_PROTO: '2' }), startServer('B', { SERVER_INV: '1', MIN_PROTO: '2' })]);
+  const [A, B] = await Promise.all([startServer('A', { SERVER_INV: '1', MIN_PROTO: '3' }), startServer('B', { SERVER_INV: '1', MIN_PROTO: '3' })]);
   servers.push(A, B);
 
-  await t.test('proto gate: old clients get 426 / update_required; v1.7 (proto=2) is let in', async () => {
+  await t.test('proto gate: old clients get 426 / update_required; v1.7.0/1.7.1 (proto=2) refused, v1.7.2 (proto=3) is let in', async () => {
     const old = await post(A.base, '/register', { username: `zzx${rnd}`, password: PW });
     assert.equal(old.status, 426);
     assert.equal(old.json.update, true);
-    assert.match(old.json.error, /Update ke Pixeltopia v1\.7\.0/);
+    assert.match(old.json.error, /Update Pixeltopia ke versi terbaru/);
+    assert.doesNotMatch(old.json.error, /v1\.\d/);
     assert.match(old.json.url, /github\.com\/DitoBimaRamadhan\/Pixeltopia\/releases/);
     assert.equal((await post(A.base, '/login', { username: 'x', password: 'y' })).status, 426);
+    const p2 = await post(A.base, '/register', { username: `zzy${rnd}`, password: PW, proto: 2 });
+    assert.equal(p2.status, 426);
+    assert.equal(p2.json.update, true);
+    assert.match(p2.json.url, /releases\/latest/);
     for (const [k, u] of Object.entries(names)) {
-      const r = await post(A.base, '/register', { username: u, password: PW, proto: 2 });
+      const r = await post(A.base, '/register', { username: u, password: PW, proto: 3 });
       assert.equal(r.status, 201, `register ${k}`);
       ids[k] = r.json.userId; tok[k] = r.json.token;
     }

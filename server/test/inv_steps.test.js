@@ -100,13 +100,13 @@ test('drops: deterministic per (world, seq), op id drop:<user>:<world>:<seq>, ru
     assert.deepEqual(e1[0].ops.items, items);
     assert.equal(e1[0].ops.gems || 0, roll.gems);
   } else assert.deepEqual(e1, []);
-  // over many seqs: dirt (farmable 0.92) drops itself most of the time; distribution sane
+  // over many seqs: dirt (basic block, 0.6 since v1.8) drops itself ~60% of the time; distribution sane
   let dirt = 0;
   for (let s = 1; s <= 2000; s++) {
     const e = inv.invEffectsForEvent('W', { ...ev, seq: s }, r, null)[0];
     if (e && e.ops.items[T.DIRT]) dirt++;
   }
-  assert.ok(dirt > 1700 && dirt < 1980, `dirt drops ${dirt}`);
+  assert.ok(dirt > 1100 && dirt < 1300, `dirt drops ${dirt}`);
   // harvest: always crop + seed, reason harvest
   const h = inv.invEffectsForEvent('W', ev, { ok: true, x: 1, y: 2, id: 0, broke: T.SEED, harvest: T.CROP }, null)[0];
   assert.equal(h.reason, 'harvest');

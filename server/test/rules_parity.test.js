@@ -32,6 +32,10 @@ function mulberry32(seed) {
   };
 }
 
+test('hit reset window matches Tiles.HIT_RESET_SEC', () => {
+  assert.equal(rules.HIT_RESET_SEC, G.hit_reset_sec);
+});
+
 test('tile ids match Tiles.Id', () => {
   assert.deepEqual({ ...rules.TILE }, G.tile_ids);
 });
@@ -50,6 +54,7 @@ test('tile predicates and seed/crop/grow tables match tiles.gd', () => {
     assert.equal(rules.seedForCrop(id), g.seed_for_crop, `${where} seed_for_crop`);
     assert.equal(rules.cropForSeed(id), g.crop_for_seed, `${where} crop_for_seed`);
     assert.equal(rules.growSeconds(id), g.grow_seconds, `${where} grow_seconds`);
+    assert.equal(rules.hitsToBreak(id), g.hits_to_break, `${where} hits_to_break`);
   }
 });
 
@@ -204,9 +209,9 @@ test('rules.rollBreak / rollHarvest with a seeded rng match the exact distributi
 
 test('rolls are deterministic and consume rng in GDScript order', () => {
   const scripted = (vals) => { let i = 0; const f = () => { if (i >= vals.length) throw new Error('rng over-consumed'); return vals[i++]; }; f.used = () => i; return f; };
-  // Dirt: block roll, seed roll, gem roll, gem amount (farmable)
+  // Dirt: block roll, seed roll, gem roll, gem amount (farmable; basic blocks always 1 gem in v1.8)
   let rng = scripted([0.0, 0.0, 0.0, 0.99]);
-  assert.deepEqual(rules.rollBreak(rules.TILE.DIRT, rng), { block: 1, seed: 4, gems: 3, items: [{ id: 1, n: 1 }, { id: 4, n: 1 }] });
+  assert.deepEqual(rules.rollBreak(rules.TILE.DIRT, rng), { block: 1, seed: 4, gems: 1, items: [{ id: 1, n: 1 }, { id: 4, n: 1 }] });
   assert.equal(rng.used(), 4);
   // Stone: no seed_drop → no seed roll; non-farmable gem amount uses no rng
   rng = scripted([0.37, 0.11]);

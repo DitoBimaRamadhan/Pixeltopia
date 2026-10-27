@@ -28,6 +28,7 @@ func _init() -> void:
 		"splice": _splice(),
 		"quests": Quests.defs(),
 		"inventory": _inventory(),
+		"hit_reset_sec": Tiles.HIT_RESET_SEC,
 		"world": {"W": WorldScript.W, "H": WorldScript.H, "FERTILIZER_FACTOR": WorldScript.FERTILIZER_FACTOR},
 		"gem_amount_samples": _gem_amount_samples(),
 		"break_mc": _break_mc(),
@@ -64,6 +65,7 @@ func _tiles() -> Dictionary:
 			"seed_for_crop": Tiles.seed_for_crop(id),
 			"crop_for_seed": Tiles.crop_for_seed(id),
 			"grow_seconds": Tiles.grow_seconds(id),
+			"hits_to_break": Tiles.hits_to_break(id),
 		}
 	return out
 

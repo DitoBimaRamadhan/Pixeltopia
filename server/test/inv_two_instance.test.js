@@ -55,13 +55,30 @@ function connect(base, token) {
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(`${base.replace(/^http/, 'ws')}/ws${token ? `?token=${encodeURIComponent(token)}` : ''}`);
     ws.inbox = [];
-    ws.on('message', (m) => { const o = JSON.parse(String(m)); if (o.t !== 'snap') ws.inbox.push(o); });
+    // v1.8: the server checks reach and needs several hits per block. Edits first "walk" to the tile, and
+    // a punch keeps hitting (spaced under the rate limit) while the server answers with `hit` progress.
+    ws.punching = new Set();
+    ws.on('message', (m) => {
+      const o = JSON.parse(String(m));
+      if (o.t === 'snap') return;
+      ws.inbox.push(o);
+      const k = `${o.x},${o.y}`;
+      if (o.t === 'hit' && ws.punching.has(k)) setTimeout(() => { if (ws.readyState === 1) ws.send(JSON.stringify({ t: 'punch', x: o.x, y: o.y })); }, 160);
+      else if ((o.t === 'tile' || o.t === 'error') && ws.punching.has(k)) ws.punching.delete(k);
+      else if (o.t === 'error') ws.punching.clear();
+    });
     ws.waitFor = async (pred, ms = 15000) => {
       const t0 = Date.now();
       while (Date.now() - t0 < ms) { const m = ws.inbox.find(pred); if (m) return m; await sleep(25); }
       throw new Error('timeout waiting for message');
     };
-    ws.sendJ = (o) => ws.send(JSON.stringify(o));
+    ws.sendJ = (o) => {
+      if ((o.t === 'punch' || o.t === 'place' || o.t === 'fertilize') && Number.isInteger(o.x)) {
+        ws.send(JSON.stringify({ t: 'move', tx: o.x, ty: o.y }));
+        if (o.t === 'punch') ws.punching.add(`${o.x},${o.y}`);
+      }
+      ws.send(JSON.stringify(o));
+    };
     ws.on('open', () => resolve(ws)); ws.on('error', reject);
   });
 }
