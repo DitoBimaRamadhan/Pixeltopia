@@ -83,8 +83,22 @@ function normalizeWorldName(name) {
 function hasAccess(world, playerId) {
   return (world.access || []).some((a) => a.id === playerId);
 }
+/** World settings (v1.8, owner-only): open = anyone may build in a locked world, bg = backdrop theme,
+ *  welcome = short message shown on join. Always normalized, so every instance stores the same thing. */
+const BG_THEMES = 4;
+function normalizeSettings(src) {
+  const s = src && typeof src === 'object' ? src : {};
+  const out = {};
+  if (s.open === true) out.open = true;
+  const bg = Number(s.bg);
+  if (Number.isInteger(bg) && bg > 0 && bg < BG_THEMES) out.bg = bg;
+  const welcome = String(s.welcome == null ? '' : s.welcome).replace(/[\r\n\t]/g, ' ').trim().slice(0, 80);
+  if (welcome) out.welcome = welcome;
+  return out;
+}
 function canEdit(world, player) {
   if (!world.lockOwnerId) return true;
+  if (world.settings && world.settings.open) return true;
   return world.lockOwnerId === player.id || hasAccess(world, player.id);
 }
 function setTile(world, x, y, id) {
@@ -136,7 +150,7 @@ function applyEvent(world, ev) {
       }
       setTile(world, x, y, AIR);
       if (world.plants) delete world.plants[key];
-      if (id === WORLD_LOCK) { world.lockOwnerId = null; world.lockOwnerName = null; world.access = []; }
+      if (id === WORLD_LOCK) { world.lockOwnerId = null; world.lockOwnerName = null; world.access = []; world.settings = {}; }
       const out = { ok: true, x, y, id: AIR, broke: id };
       if (harvest !== undefined) out.harvest = harvest;
       return out;
@@ -156,6 +170,7 @@ function applyEvent(world, ev) {
         world.lockOwnerId = actor.id;
         world.lockOwnerName = actor.username;
         world.access = [];
+        world.settings = {};
       }
       setTile(world, x, y, tileId);
       const out = { ok: true, x, y, id: tileId };
@@ -204,6 +219,12 @@ function applyEvent(world, ev) {
       world.dirty = true;
       return { ok: true };
     }
+    case 'settings': {
+      if (!world.lockOwnerId || world.lockOwnerId !== actor.id) return { error: 'Hanya pemilik World Lock yang bisa mengubah pengaturan dunia.' };
+      world.settings = normalizeSettings(ev.settings);
+      world.dirty = true;
+      return { ok: true, settings: world.settings };
+    }
     default:
       return { error: 'Event tidak dikenal.' };
   }
@@ -231,6 +252,7 @@ function normalizeEvent(ev) {
     out.target = { id: t.id == null ? null : String(t.id), username: t.username == null ? null : String(t.username) };
   }
   if (ev.kind === 'access_revoke') out.target = String(ev.target);
+  if (ev.kind === 'settings') out.settings = normalizeSettings(ev.settings);
   return out;
 }
 
@@ -262,7 +284,7 @@ function createWorldManager() {
     const gen = generateGrid(seed);
     const world = {
       name, seed: gen.seed, grid: gen.grid, spawn: gen.spawn,
-      lockOwnerId: null, lockOwnerName: null, access: [], plants: {}, createdBy: ownerId || null,
+      lockOwnerId: null, lockOwnerName: null, access: [], plants: {}, settings: {}, createdBy: ownerId || null,
       createdAt: Date.now(), players: new Map(), dirty: true,
     };
     worlds.set(name, world);
@@ -277,6 +299,7 @@ function createWorldManager() {
       lockOwnerId: data.lockOwnerId || null, lockOwnerName: data.lockOwnerName || null,
       access: Array.isArray(data.access) ? data.access.slice(0, 64) : [],
       plants: clonePlants(data.plants),
+      settings: normalizeSettings(data.settings),
       createdBy: data.createdBy || null, createdAt: data.createdAt || Date.now(),
       players: new Map(), dirty: false,
     };
@@ -322,7 +345,7 @@ function createWorldManager() {
   return {
     W, H, WORLD_LOCK, AIR, ensureStart, createWorld, getWorld, listWorlds, hydrate, allWorlds, unload,
     hasAccess, grantAccess, revokeAccess, applyEvent,
-    gridArray, canEdit, punch, place, join, leave, normalizeWorldName,
+    gridArray, canEdit, normalizeSettings, punch, place, join, leave, normalizeWorldName,
   };
 }
-module.exports = { createWorldManager, normalizeWorldName, mulberry32, applyEvent, normalizeEvent, generateGrid, clonePlants, plantsReadyIn, W, H, AIR, WORLD_LOCK, UNRIPE_GRACE_MS };
+module.exports = { createWorldManager, normalizeWorldName, normalizeSettings, mulberry32, applyEvent, normalizeEvent, generateGrid, clonePlants, plantsReadyIn, W, H, AIR, WORLD_LOCK, UNRIPE_GRACE_MS };

@@ -14,7 +14,7 @@
  * diff corrects our players' screens.
  */
 const crypto = require('crypto');
-const { applyEvent, normalizeEvent, generateGrid, clonePlants, W } = require('./world_manager');
+const { applyEvent, normalizeEvent, generateGrid, clonePlants, normalizeSettings, W } = require('./world_manager');
 const rules = require('./rules');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -37,6 +37,7 @@ function createWorldSync({
   const cloneBase = (src) => ({
     grid: Int32Array.from(src.grid), lockOwnerId: src.lockOwnerId || null, lockOwnerName: src.lockOwnerName || null,
     access: (src.access || []).map((a) => ({ id: a.id, username: a.username })), plants: clonePlants(src.plants), dirty: false,
+    settings: normalizeSettings(src.settings),
   });
   function attach(world, row) {
     world.base = cloneBase(row);
@@ -57,6 +58,7 @@ function createWorldSync({
     world.lockOwnerName = world.base.lockOwnerName;
     world.access = world.base.access.map((a) => ({ id: a.id, username: a.username }));
     world.plants = clonePlants(world.base.plants);
+    world.settings = normalizeSettings(world.base.settings);
     for (const p of world.pending) applyEvent(world, p.ev); // a pending edit that no longer fits is simply skipped
   }
   const visibleKey = (w) => `${w.lockOwnerId}|${w.lockOwnerName}`;
@@ -106,6 +108,7 @@ function createWorldSync({
       const prevLockOwnerId = world.base.lockOwnerId || null;
       const r = applyEvent(world.base, ev);
       stateChanged = true;
+      if (!mine && ev.kind === 'settings' && !r.error) broadcastWorld(world, { t: 'world_settings', settings: r.settings });
       if (onEventApplied && (ev.kind === 'punch' || ev.kind === 'place' || ev.kind === 'fertilize')) {
         // Confirmed (logged) outcome, identical on every instance: inventory refunds/credits hang off this.
         try { onEventApplied(world, ev, r, { prevLockOwnerId, mine }); } catch (e) { log.error('[sync] onEventApplied failed:', e.message); }

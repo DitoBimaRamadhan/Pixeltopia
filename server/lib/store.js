@@ -53,6 +53,7 @@ function worldRow(w) {
     lockOwnerId: w.lockOwnerId || null, lockOwnerName: w.lockOwnerName || null,
     access: Array.isArray(w.access) ? w.access : [],
     plants: (w.plants && typeof w.plants === 'object') ? w.plants : {},
+    settings: (w.settings && typeof w.settings === 'object') ? w.settings : {},
     createdBy: w.createdBy || null, createdAt: Number(w.createdAt) || Date.now(), updatedAt: Date.now(),
   };
 }
@@ -62,6 +63,7 @@ function rowToWorld(r) {
     lockOwnerId: r.lockOwnerId || null, lockOwnerName: r.lockOwnerName || null,
     access: Array.isArray(r.access) ? r.access : [],
     plants: (r.plants && typeof r.plants === 'object') ? r.plants : {},
+    settings: (r.settings && typeof r.settings === 'object') ? r.settings : {},
     createdBy: r.createdBy || null, createdAt: Number(r.createdAt) || Date.now(),
   };
 }
@@ -146,6 +148,7 @@ function invStateFromJson(j) {
 
 // ---------------------------------------------------------------- file store
 function createFileStore({ dataDir }) {
+  const social = { friends: new Set(), pms: [], pmSeq: 0 };
   const USERS = path.join(dataDir, 'users.json');
   const PROFILES = path.join(dataDir, 'profiles.json');
   const WORLDS_DIR = path.join(dataDir, 'worlds');
@@ -401,6 +404,63 @@ function createFileStore({ dataDir }) {
       writeJson(INVENTORY, d);
       return { ok: true, progress, state: invStateFromJson(r) };
     },
+    // v1.8 social / daily (file store: in memory, local dev only)
+    async ledgerByReason(userId, reason, sinceMs) {
+      return Object.entries(readInv().ledger || {}).filter(([, e]) => e.userId === userId && e.reason === reason && (e.createdAt || 0) >= sinceMs)
+        .map(([opId, e]) => ({ opId, createdAt: e.createdAt || 0 }));
+    },
+    async invProgressSince(userId, reason, sinceMs) {
+      let n = 0;
+      for (const e of Object.values(readInv().ledger || {})) {
+        if (e.userId !== userId || (e.createdAt || 0) < sinceMs) continue;
+        if (e.reason === reason) n++; else if (e.reason === `refund_${reason}`) n--;
+      }
+      return Math.max(0, n);
+    },
+    async questClaimedLike(userId, prefix) { return (await this.questClaimed(userId)).filter((x) => x.startsWith(prefix)); },
+    async questClaimSince(userId, qid, { countReason, goal, since, opId, ops }) {
+      if ((await this.questClaimed(userId)).includes(qid)) return { ok: false, error: 'already_claimed', state: await this.invGet(userId) };
+      const progress = await this.invProgressSince(userId, countReason, since);
+      if (progress < goal) return { ok: false, error: 'not_complete', progress, state: await this.invGet(userId) };
+      const r = await this.invApply(opId, userId, ops, 'daily_quest');
+      if (!r.ok) return { ok: false, error: r.error, state: invStateFromJson(r.ver === undefined ? null : r) };
+      const d = readInv(); d.questClaims = d.questClaims || {};
+      d.questClaims[userId] = { ...(d.questClaims[userId] || {}), [qid]: Date.now() }; writeJson(INVENTORY, d);
+      return { ok: true, progress, state: invStateFromJson(r) };
+    },
+    async leaderboard(limit = 20) {
+      const users = readJson(USERS, {}); const w = readInv().wallets || {};
+      return Object.values(users).map((u) => ({ username: u.username, gems: Number((w[u.id] || {}).gems) || 0 }))
+        .sort((a, b) => b.gems - a.gems).slice(0, limit);
+    },
+    async gemsRank() { return null; },
+    async getUserById(id) { return Object.values(readJson(USERS, {})).find((u) => u.id === id) || null; },
+    async friendAdd(userId, friendId) { social.friends.add(`${userId}>${friendId}`); return true; },
+    async friendRemove(userId, friendId) { social.friends.delete(`${userId}>${friendId}`); social.friends.delete(`${friendId}>${userId}`); },
+    async friendList(userId) {
+      const out = { friends: [], incoming: [], outgoing: [] }; const seen = new Set();
+      for (const k of social.friends) {
+        const [a, b] = k.split('>'); const other = a === userId ? b : b === userId ? a : null;
+        if (!other || seen.has(other)) continue; seen.add(other);
+        const u = await this.getUserById(other); const e = { id: other, username: u ? u.username : other };
+        const mine = social.friends.has(`${userId}>${other}`), theirs = social.friends.has(`${other}>${userId}`);
+        (mine && theirs ? out.friends : mine ? out.outgoing : out.incoming).push(e);
+      }
+      return out;
+    },
+    async areFriends(a, b) { return social.friends.has(`${a}>${b}`) && social.friends.has(`${b}>${a}`); },
+    async pmSend(fromId, fromName, toId, text) { const m = { id: ++social.pmSeq, from: fromId, fromName, to: toId, text, ts: Date.now() }; social.pms.push(m); return { id: m.id, ts: m.ts }; },
+    async pmThread(userId, otherId, limit = 50) {
+      return social.pms.filter((m) => (m.from === userId && m.to === otherId) || (m.from === otherId && m.to === userId)).slice(-limit);
+    },
+    async pmMarkRead(userId, otherId) { for (const m of social.pms) if (m.to === userId && m.from === otherId) m.read = true; },
+    async pmUnread(userId) {
+      const by = {};
+      for (const m of social.pms) if (m.to === userId && !m.read) { by[m.from] = by[m.from] || { from: m.from, fromName: m.fromName, n: 0, lastId: 0 }; by[m.from].n++; by[m.from].lastId = m.id; }
+      return Object.values(by);
+    },
+    async pmSince(userIds, afterId) { return social.pms.filter((m) => m.id > afterId && userIds.includes(m.to)); },
+    async pmMaxId() { return social.pmSeq; },
     async tradeSettle(id, version, opsA, opsB) {
       const t = tradesMem.get(String(id));
       if (!t || t.version !== version || t.status !== 'open' || !t.ready[t.a] || !t.ready[t.b]) return { ok: false, error: 'conflict' };
@@ -703,6 +763,55 @@ const MIGRATIONS = [
      RETURN jsonb_build_object('ok', true, 'trade', to_jsonb(t), 'invA', ra, 'invB', rb);
    END
    $fn$;`,
+  // v7 — v1.8: world settings, friends, private messages, per-day quest progress. Additive + idempotent.
+  `ALTER TABLE worlds ADD COLUMN IF NOT EXISTS settings JSONB NOT NULL DEFAULT '{}'::jsonb;
+   CREATE TABLE IF NOT EXISTS friends (
+     user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     friend_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     created_at BIGINT NOT NULL,
+     PRIMARY KEY (user_id, friend_id)
+   );
+   CREATE INDEX IF NOT EXISTS friends_friend_idx ON friends(friend_id);
+   CREATE TABLE IF NOT EXISTS private_messages (
+     id BIGSERIAL PRIMARY KEY,
+     from_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     from_name TEXT NOT NULL,
+     to_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+     text TEXT NOT NULL,
+     created_at BIGINT NOT NULL,
+     read_at BIGINT
+   );
+   CREATE INDEX IF NOT EXISTS pm_to_idx ON private_messages(to_id, id);
+   CREATE INDEX IF NOT EXISTS pm_from_idx ON private_messages(from_id, id);
+   CREATE INDEX IF NOT EXISTS inventory_ledger_reason_idx ON inventory_ledger(user_id, reason, created_at);
+   CREATE OR REPLACE FUNCTION inv_progress_since(p_user TEXT, p_reason TEXT, p_since BIGINT) RETURNS INT LANGUAGE sql STABLE AS $fn$
+     SELECT GREATEST(0,
+       (SELECT count(*) FROM inventory_ledger WHERE user_id = p_user AND reason = p_reason AND created_at >= p_since)
+       - (SELECT count(*) FROM inventory_ledger WHERE user_id = p_user AND reason = 'refund_' || p_reason AND created_at >= p_since))::INT
+   $fn$;
+   CREATE OR REPLACE FUNCTION quest_claim_since(p_user TEXT, p_qid TEXT, p_count_reason TEXT, p_goal INT, p_since BIGINT,
+       p_op_id TEXT, p_ops JSONB, p_now BIGINT, p_item_max INT, p_gems_max BIGINT) RETURNS JSONB LANGUAGE plpgsql AS $fn$
+   DECLARE
+     v_n INT;
+     v_inv JSONB;
+   BEGIN
+     PERFORM 1 FROM wallets WHERE user_id = p_user FOR UPDATE;
+     IF NOT FOUND THEN RETURN jsonb_build_object('ok', false, 'error', 'no_wallet'); END IF;
+     IF EXISTS (SELECT 1 FROM quest_claims WHERE user_id = p_user AND qid = p_qid) THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'already_claimed', 'inv', inv_state(p_user));
+     END IF;
+     v_n := inv_progress_since(p_user, p_count_reason, p_since);
+     IF v_n < p_goal THEN
+       RETURN jsonb_build_object('ok', false, 'error', 'not_complete', 'progress', v_n, 'inv', inv_state(p_user));
+     END IF;
+     v_inv := inv_apply(p_op_id, p_user, p_ops, 'daily_quest', p_now, p_item_max, p_gems_max);
+     IF NOT COALESCE((v_inv->>'ok')::BOOLEAN, false) THEN
+       RETURN jsonb_build_object('ok', false, 'error', v_inv->>'error', 'inv', v_inv);
+     END IF;
+     INSERT INTO quest_claims(user_id, qid, claimed_at) VALUES (p_user, p_qid, p_now) ON CONFLICT DO NOTHING;
+     RETURN jsonb_build_object('ok', true, 'progress', v_n, 'inv', v_inv);
+   END
+   $fn$;`,
 ];
 
 /**
@@ -789,19 +898,19 @@ function createPgStore({ databaseUrl }) {
       const { rows } = await q('SELECT * FROM worlds');
       return rows.map((r) => rowToWorld({
         name: r.name, seed: r.seed, grid: r.grid, spawn: r.spawn, lockOwnerId: r.lock_owner_id,
-        lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, createdBy: r.created_by, createdAt: r.created_at,
+        lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, settings: r.settings, createdBy: r.created_by, createdAt: r.created_at,
       }));
     },
     async saveWorld(w) {
       const r = worldRow(w);
       await q(
-        `INSERT INTO worlds(name, seed, grid, spawn, lock_owner_id, lock_owner_name, access, created_by, created_at, updated_at, plants)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+        `INSERT INTO worlds(name, seed, grid, spawn, lock_owner_id, lock_owner_name, access, created_by, created_at, updated_at, plants, settings)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (name) DO UPDATE SET grid=EXCLUDED.grid, spawn=EXCLUDED.spawn,
            lock_owner_id=EXCLUDED.lock_owner_id, lock_owner_name=EXCLUDED.lock_owner_name,
-           access=EXCLUDED.access, updated_at=EXCLUDED.updated_at, plants=EXCLUDED.plants`,
+           access=EXCLUDED.access, updated_at=EXCLUDED.updated_at, plants=EXCLUDED.plants, settings=EXCLUDED.settings`,
         [r.name, r.seed, r.grid, JSON.stringify(r.spawn), r.lockOwnerId, r.lockOwnerName,
-          JSON.stringify(r.access), r.createdBy, r.createdAt, r.updatedAt, JSON.stringify(r.plants)],
+          JSON.stringify(r.access), r.createdBy, r.createdAt, r.updatedAt, JSON.stringify(r.plants), JSON.stringify(r.settings)],
       );
     },
     async getProfile(userId) {
@@ -835,7 +944,7 @@ function createPgStore({ databaseUrl }) {
       return {
         ...rowToWorld({
           name: r.name, seed: r.seed, grid: r.grid, spawn: r.spawn, lockOwnerId: r.lock_owner_id,
-          lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, createdBy: r.created_by, createdAt: r.created_at,
+          lockOwnerName: r.lock_owner_name, access: r.access, plants: r.plants, settings: r.settings, createdBy: r.created_by, createdAt: r.created_at,
         }),
         snapshotSeq: Number(r.snapshot_seq) || 0, headSeq: Number(r.head_seq) || 0,
       };
@@ -902,10 +1011,11 @@ function createPgStore({ databaseUrl }) {
     async saveSnapshotIfNewer(w, seq) {
       const r = worldRow(w);
       const res = await q(
-        `UPDATE worlds SET grid=$2, spawn=$3, lock_owner_id=$4, lock_owner_name=$5, access=$6, updated_at=$7, snapshot_seq=$8, plants=$9
+        `UPDATE worlds SET grid=$2, spawn=$3, lock_owner_id=$4, lock_owner_name=$5, access=$6, updated_at=$7, snapshot_seq=$8, plants=$9,
+           settings=$10
          WHERE name=$1 AND snapshot_seq < $8 AND $8 <= head_seq`,
         [r.name, r.grid, JSON.stringify(r.spawn), r.lockOwnerId, r.lockOwnerName, JSON.stringify(r.access), r.updatedAt, Number(seq) || 0,
-          JSON.stringify(r.plants)],
+          JSON.stringify(r.plants), JSON.stringify(r.settings)],
       );
       return res.rowCount === 1;
     },
@@ -1122,6 +1232,118 @@ function createPgStore({ databaseUrl }) {
       const st = (j) => invStateFromJson(j && j.ver !== undefined ? j : null);
       if (!r.ok) return { ok: false, error: r.error, side: r.side || undefined, invA: st(r.invA), invB: st(r.invB) };
       return { ok: true, trade: tradeFromRow(r.trade), invA: st(r.invA), invB: st(r.invB) };
+    },
+    // ------------------------------------------------ v1.8 social / daily (v7)
+    /** Ledger rows of one reason since `sinceMs`: [{opId, createdAt}] (daily login streaks). */
+    async ledgerByReason(userId, reason, sinceMs) {
+      const { rows } = await q('SELECT op_id, created_at FROM inventory_ledger WHERE user_id = $1 AND reason = $2 AND created_at >= $3 ORDER BY created_at DESC LIMIT 400',
+        [userId, String(reason), Number(sinceMs) || 0]);
+      return rows.map((r) => ({ opId: r.op_id, createdAt: Number(r.created_at) }));
+    },
+    async invProgressSince(userId, reason, sinceMs) {
+      const { rows } = await q('SELECT inv_progress_since($1, $2, $3) AS n', [userId, String(reason), Number(sinceMs) || 0]);
+      return Number(rows[0].n) || 0;
+    },
+    async questClaimedLike(userId, prefix) {
+      const { rows } = await q("SELECT qid FROM quest_claims WHERE user_id = $1 AND qid LIKE $2 || '%'", [userId, String(prefix)]);
+      return rows.map((r) => r.qid);
+    },
+    /** Per-day quest reward: progress since `since` + claim row + credit in one transaction (quest_claim_since, v7). */
+    async questClaimSince(userId, qid, { countReason, goal, since, opId, ops }) {
+      if (!validOpId(opId, userId)) return { ok: false, error: 'bad_op_id' };
+      const norm = normalizeInvOps(ops);
+      if (!norm.ok) return norm;
+      const { rows } = await q('SELECT quest_claim_since($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9,$10) AS r',
+        [userId, String(qid), String(countReason), Number(goal) | 0, Number(since) || 0, opId, JSON.stringify(norm.ops), Date.now(), rules.INV_ITEM_MAX, rules.INV_GEMS_MAX]);
+      const r = rows[0].r || {};
+      const st = invStateFromJson(r.inv && r.inv.ver !== undefined ? r.inv : null);
+      return { ok: !!r.ok, ...(r.ok ? {} : { error: r.error }), progress: r.progress == null ? undefined : Number(r.progress), state: st };
+    },
+    /** Richest players (wallet gems). */
+    async leaderboard(limit = 20) {
+      const { rows } = await q(
+        `SELECT u.username, w.gems FROM wallets w JOIN users u ON u.id = w.user_id
+         ORDER BY w.gems DESC, u.username_lower LIMIT $1`, [Math.max(1, Math.min(50, limit | 0))]);
+      return rows.map((r) => ({ username: r.username, gems: Number(r.gems) }));
+    },
+    async gemsRank(userId) {
+      const { rows } = await q(
+        `SELECT 1 + (SELECT count(*) FROM wallets o WHERE o.gems > w.gems) AS rank, w.gems FROM wallets w WHERE w.user_id = $1`, [userId]);
+      return rows[0] ? { rank: Number(rows[0].rank), gems: Number(rows[0].gems) } : null;
+    },
+    async getUserById(id) {
+      const { rows } = await q('SELECT * FROM users WHERE id = $1', [id]);
+      return userRow(rows[0]) || null;
+    },
+    /** One-way "I added you"; a friendship is both directions present. Returns false when the cap is hit. */
+    async friendAdd(userId, friendId, cap = 100) {
+      const { rows } = await q(
+        `INSERT INTO friends(user_id, friend_id, created_at)
+         SELECT $1, $2, $3 WHERE (SELECT count(*) FROM friends WHERE user_id = $1) < $4
+         ON CONFLICT DO NOTHING RETURNING 1`, [userId, friendId, Date.now(), cap]);
+      if (rows.length) return true;
+      const ex = await q('SELECT 1 FROM friends WHERE user_id = $1 AND friend_id = $2', [userId, friendId]);
+      return ex.rows.length > 0;
+    },
+    async friendRemove(userId, friendId) {
+      await q('DELETE FROM friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)', [userId, friendId]);
+    },
+    /** { friends: [{id, username}], incoming: [...], outgoing: [...] } */
+    async friendList(userId) {
+      const { rows } = await q(
+        `SELECT u.id, u.username,
+                EXISTS (SELECT 1 FROM friends a WHERE a.user_id = $1 AND a.friend_id = u.id) AS mine,
+                EXISTS (SELECT 1 FROM friends b WHERE b.user_id = u.id AND b.friend_id = $1) AS theirs
+         FROM users u
+         WHERE u.id IN (SELECT friend_id FROM friends WHERE user_id = $1 UNION SELECT user_id FROM friends WHERE friend_id = $1)
+         ORDER BY u.username_lower LIMIT 300`, [userId]);
+      const out = { friends: [], incoming: [], outgoing: [] };
+      for (const r of rows) {
+        const e = { id: r.id, username: r.username };
+        if (r.mine && r.theirs) out.friends.push(e); else if (r.mine) out.outgoing.push(e); else out.incoming.push(e);
+      }
+      return out;
+    },
+    async areFriends(a, b) {
+      const { rows } = await q(
+        'SELECT count(*)::int AS n FROM friends WHERE (user_id = $1 AND friend_id = $2) OR (user_id = $2 AND friend_id = $1)', [a, b]);
+      return rows[0].n === 2;
+    },
+    async pmSend(fromId, fromName, toId, text) {
+      const { rows } = await q(
+        'INSERT INTO private_messages(from_id, from_name, to_id, text, created_at) VALUES ($1,$2,$3,$4,$5) RETURNING id, created_at',
+        [fromId, fromName, toId, text, Date.now()]);
+      return { id: Number(rows[0].id), ts: Number(rows[0].created_at) };
+    },
+    /** Conversation between two users, oldest first (last `limit`). */
+    async pmThread(userId, otherId, limit = 50) {
+      const { rows } = await q(
+        `SELECT id, from_id, from_name, to_id, text, created_at FROM private_messages
+         WHERE (from_id = $1 AND to_id = $2) OR (from_id = $2 AND to_id = $1) ORDER BY id DESC LIMIT $3`,
+        [userId, otherId, Math.max(1, Math.min(100, limit | 0))]);
+      return rows.reverse().map((r) => ({ id: Number(r.id), from: r.from_id, fromName: r.from_name, to: r.to_id, text: r.text, ts: Number(r.created_at) }));
+    },
+    async pmMarkRead(userId, otherId) {
+      await q('UPDATE private_messages SET read_at = $3 WHERE to_id = $1 AND from_id = $2 AND read_at IS NULL', [userId, otherId, Date.now()]);
+    },
+    /** Unread counts per sender: [{from, fromName, n, lastId}] */
+    async pmUnread(userId) {
+      const { rows } = await q(
+        `SELECT from_id, max(from_name) AS from_name, count(*)::int AS n, max(id) AS last_id FROM private_messages
+         WHERE to_id = $1 AND read_at IS NULL GROUP BY from_id ORDER BY max(id) DESC LIMIT 50`, [userId]);
+      return rows.map((r) => ({ from: r.from_id, fromName: r.from_name, n: r.n, lastId: Number(r.last_id) }));
+    },
+    /** Messages sent to the user after `afterId` (cross-instance delivery poll). */
+    async pmSince(userIds, afterId) {
+      if (!userIds.length) return [];
+      const { rows } = await q(
+        `SELECT id, from_id, from_name, to_id, text, created_at FROM private_messages
+         WHERE id > $2 AND to_id = ANY($1::text[]) ORDER BY id LIMIT 500`, [userIds, Number(afterId) || 0]);
+      return rows.map((r) => ({ id: Number(r.id), from: r.from_id, fromName: r.from_name, to: r.to_id, text: r.text, ts: Number(r.created_at) }));
+    },
+    async pmMaxId() {
+      const { rows } = await q('SELECT COALESCE(max(id), 0) AS m FROM private_messages');
+      return Number(rows[0].m) || 0;
     },
     /** Drop events already folded into a snapshot and older than `olderThanMs` (late joiners replay from snapshot). */
     async cleanupEvents({ olderThanMs = 10 * 60 * 1000 } = {}) {

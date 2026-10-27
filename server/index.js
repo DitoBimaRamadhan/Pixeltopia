@@ -18,6 +18,7 @@ const { createWorldSync } = require('./lib/world_sync');
 const { createStore } = require('./lib/store');
 const invServer = require('./lib/inv_server');
 const abuse = require('./lib/abuse');
+const { createSocial } = require('./lib/social');
 
 // Load server/.env (gitignored) without overriding real env vars from the host.
 (function loadDotEnv() {
@@ -65,6 +66,7 @@ const UPDATE_MSG = `Versi game kamu sudah lama. Update Pixeltopia ke versi terba
 // v1.8 anti-abuse (lib/abuse.js). Client punches at most ~5.5/s (hold) and REACH = 3 tiles.
 const PUNCH_RATE = 7, PUNCH_BURST = 10;
 const PLACE_RATE = 8, PLACE_BURST = 12;
+const SOCIAL_RATE = 4, SOCIAL_BURST = 10; // daily / leaderboard / friends / PM / world settings requests
 const REACH_TILES = 3, REACH_SLACK = 2;
 const RATE_NOTICE_MS = 3000;
 const clientProto = (v) => { const n = Number(v); return Number.isFinite(n) ? n | 0 : 0; };
@@ -370,6 +372,10 @@ async function applyPlayerOps(player, opId, ops, reason) {
   if (r.ok && !r.dup) console.log(`[inv] ${reason} user=${player.id} op=${opId} ver=${r.ver}`);
   return { ok: r.ok, dup: r.dup, error: r.error, state: st };
 }
+const social = createSocial({
+  store, safeSend, localPlayers, localPlayersById, applyPlayerOps, setSrvInv,
+  walletReady: async (p) => !!(SERVER_INV && (p.srvInv || await ensureWalletOnDemand(p))),
+});
 const REWARD_FRESH_MS = 60000; // replays of old events (world reload) must not show reward popups again
 function sendReward(userId, e, ev) {
   if (!e.reward || Date.now() - (Number(ev.createdAt) || Date.now()) > REWARD_FRESH_MS) return;
@@ -553,6 +559,7 @@ function worldSnapshot(world) {
     grid: worlds.gridArray(world), spawn: world.spawn,
     lockOwnerId: world.lockOwnerId, lockOwnerName: world.lockOwnerName,
     plants: plantsReadyIn(world), // tile index -> ms until ready (<= 0: ready to harvest)
+    settings: world.settings || {},
     players,
   };
 }
@@ -787,6 +794,7 @@ wss.on('connection', (ws, req) => {
   player.opCounter = 0;
   player.punchBucket = abuse.createBucket(PUNCH_RATE, PUNCH_BURST);
   player.placeBucket = abuse.createBucket(PLACE_RATE, PLACE_BURST);
+  player.socialBucket = abuse.createBucket(SOCIAL_RATE, SOCIAL_BURST);
   player.hits = abuse.createHitTracker(rules.HIT_RESET_SEC * 1000);
   player.chatGuard = abuse.createChatGuard({ perSec: 0.8, burst: 5 });
   player.rateNoticeAt = 0;
@@ -966,6 +974,18 @@ wss.on('connection', (ws, req) => {
       await handleInvRequest(player, t, msg);
       return;
     }
+    if (social.TYPES.has(t)) { await social.handle(player, t, msg); return; }
+    if (t === 'world_settings_set') {
+      if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
+      if (!player.authed) return safeSend(ws, { t: 'error', error: 'Login dulu.' });
+      if (!player.socialBucket.take()) return rateLimited(player, t);
+      const want = msg.settings && typeof msg.settings === 'object' ? { ...msg.settings } : {};
+      if (want.welcome) want.welcome = abuse.filterChat(String(want.welcome).slice(0, 80)).text;
+      const r = sync.submit(world, { kind: 'settings', actorId: player.id, actorName: player.username, settings: want });
+      if (r.error) return safeSend(ws, { t: 'error', error: r.error });
+      broadcastWorld(world, { t: 'world_settings', settings: r.settings, by: player.username });
+      return;
+    }
     if (t === 'chat') {
       if (!world) return safeSend(ws, { t: 'error', error: 'Join dunia dulu.' });
       let text = String(msg.text || '').replace(/[\r\n\t]/g, ' ').trim();
@@ -1096,6 +1116,7 @@ async function start() {
   const r = await sync.ensureWorld('START', { create: true, creatorId: 'system' });
   if (r.error) throw new Error(`START world: ${r.error}`);
   sync.start();
+  social.start();
   console.log(`[store] backend=${store.kind} instance=${INSTANCE_ID} START@${r.world.appliedSeq}`);
   server.listen(PORT, HOST, onListening);
 }

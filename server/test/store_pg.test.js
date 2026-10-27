@@ -44,12 +44,15 @@ test('pg sync store', { skip }, async (t) => {
 
   await t.test('migration v2 applied once', async () => {
     const { rows } = await raw('SELECT version FROM schema_migrations ORDER BY version');
-    assert.deepEqual(rows.map((r) => Number(r.version)), [1, 2, 3, 4, 5, 6]);
+    assert.deepEqual(rows.map((r) => Number(r.version)), [1, 2, 3, 4, 5, 6, 7]);
     const cols = await raw(`SELECT table_name, column_name FROM information_schema.columns
       WHERE (table_name='worlds' AND column_name IN ('head_seq','snapshot_seq')) OR (table_name='profiles' AND column_name='rev')`);
     assert.equal(cols.rows.length, 3);
     const tabs = await raw(`SELECT table_name FROM information_schema.tables WHERE table_name IN ('world_events','world_presence','trade_sessions')`);
     assert.equal(tabs.rows.length, 3);
+    const v7 = await raw(`SELECT (SELECT count(*) FROM information_schema.columns WHERE table_name='worlds' AND column_name='settings')
+      + (SELECT count(*) FROM information_schema.tables WHERE table_name IN ('friends','private_messages')) AS c`);
+    assert.equal(Number(v7.rows[0].c), 3);
   });
 
   await t.test('existing worlds still load via loadWorlds (old path unchanged)', async () => {
