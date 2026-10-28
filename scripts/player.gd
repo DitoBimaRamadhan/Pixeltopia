@@ -2,9 +2,20 @@ extends Node2D
 ## Pixeltopia player: move, jump, punch/break, place, plant/harvest, drop/pickup.
 
 const Items = preload("res://scripts/items.gd")
-const SPEED := 160.0
-const JUMP_V := -320.0
+const SPEED := 160.0  ## max run speed (px/s) — unchanged so online position updates stay plausible
+const JUMP_V := -320.0  ## full-hold jump: ~1.8 tiles, same apex as v1.8
 const GRAVITY := 900.0
+## v1.9 movement feel
+const ACCEL_GROUND := 1500.0  ## px/s² toward the target speed while grounded
+const FRICTION_GROUND := 2000.0  ## px/s² braking when no direction is held on the ground
+const ACCEL_AIR := 1150.0  ## air control: you can steer left/right while jumping/falling
+const DRAG_AIR := 420.0  ## gentle slow-down in the air when no direction is held
+const FALL_GRAVITY_MULT := 1.35  ## fall a bit faster than you rise (snappier arcs)
+const JUMP_CUT := 0.45  ## releasing jump early keeps this fraction of the upward speed (variable height)
+const MAX_FALL := 560.0
+const COYOTE_TIME := 0.10  ## seconds you can still jump after walking off a ledge
+const JUMP_BUFFER := 0.13  ## seconds a jump press is remembered before landing
+const CORNER_NUDGE := 7.0  ## px: slide around a ceiling corner instead of bonking on it
 const REACH := 3  ## tiles
 const BODY := Vector2(20, 28)
 const HIT_INTERVAL := 0.18  ## seconds between punches (hold to keep hitting); server allows ~7/s
@@ -23,6 +34,16 @@ var look = null  ## AvatarLook
 var _step_cd: float = 0.0
 var _touch_dir: float = 0.0
 var _touch_jump: bool = false
+var _touch_jump_held: bool = false
+var _coyote_t: float = 0.0
+var _jump_buffer_t: float = 0.0
+var _jump_was_held: bool = false
+var _jumping: bool = false  ## rising from a jump (variable-height cut applies)
+var _air_t: float = 0.0
+var anim_t: float = 0.0  ## walk-cycle phase (avatar animation)
+var _land_squash: float = 0.0
+signal landed(impact: float)
+signal jumped
 var _shake_t: float = 0.0
 var _pickup_cd: float = 0.0
 var net: Node = null  ## GameSocket when online
@@ -75,37 +96,144 @@ func _online_session() -> bool:
 
 func _physics_process(delta: float) -> void:
 	if paused:
+		_touch_jump = false
+		_jump_buffer_t = 0.0
+		velocity.x = move_toward(velocity.x, 0.0, FRICTION_GROUND * delta)
 		_update_shake(delta)
 		return
-	var dir := _touch_dir
-	if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
-		dir -= 1.0
-	if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
-		dir += 1.0
-	dir = clampf(dir, -1.0, 1.0)
-	velocity.x = dir * SPEED
+	var dir := read_move_dir()
 	if dir != 0.0:
 		var nf := 1 if dir > 0.0 else -1
 		if nf != facing:
 			facing = nf
 			queue_redraw()
-
-	_dropping = _touch_down or Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN)
-	var want_jump := _touch_jump or Input.is_key_pressed(KEY_SPACE) or Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP)
+	_dropping = _touch_down or _key(KEY_S) or _key(KEY_DOWN)
+	var jump_held := _touch_jump_held or _key(KEY_SPACE) or _key(KEY_W) or _key(KEY_UP)
+	var jump_pressed := _touch_jump or (jump_held and not _jump_was_held) or (jump_held and on_floor)
+	_jump_was_held = jump_held
 	_touch_jump = false
-	if not on_floor:
-		velocity.y += GRAVITY * delta
-	elif want_jump:
-		velocity.y = JUMP_V
-		on_floor = false
-		Sfx.play_jump()
-
-	_resolve_tiles(delta)
+	step_movement(delta, dir, jump_pressed, jump_held)
 	_hotbar_keys()
 	_footsteps(delta, dir)
 	_try_auto_pickup(delta)
 	_update_shake(delta)
 	_hold_punch(delta)
+
+## v1.9: little dust puff at the feet on jump / landing.
+func _spawn_dust(strength: float) -> void:
+	if not is_inside_tree() or float_layer == null:
+		return
+	var p := CPUParticles2D.new()
+	p.one_shot = true
+	p.emitting = false
+	p.amount = int(4 + 8 * strength)
+	p.lifetime = 0.35
+	p.explosiveness = 1.0
+	p.direction = Vector2(0, -1)
+	p.spread = 80.0
+	p.initial_velocity_min = 20.0
+	p.initial_velocity_max = 60.0 * strength + 20.0
+	p.gravity = Vector2(0, 120)
+	p.scale_amount_min = 2.0
+	p.scale_amount_max = 3.5
+	p.color = Color(0.85, 0.8, 0.7, 0.8)
+	float_layer.add_child(p)
+	p.global_position = global_position + Vector2(0, BODY.y * 0.5)
+	p.emitting = true
+	get_tree().create_timer(0.8).timeout.connect(p.queue_free)
+
+## v1.9 camera: small look-ahead toward where you run / fall (the Camera2D smooths the rest).
+func _process(delta: float) -> void:
+	if camera == null:
+		return
+	var ahead := Vector2(clampf(velocity.x / SPEED, -1.0, 1.0) * 28.0, 0.0)
+	if not on_floor and velocity.y > 260.0:
+		ahead.y = 36.0
+	camera.position = camera.position.lerp(ahead, clampf(delta * 3.0, 0.0, 1.0))
+
+## Keyboard + touch direction, combined (touch and keys can be used together).
+func read_move_dir() -> float:
+	var dir := _touch_dir
+	if _keys_enabled():
+		if Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT):
+			dir -= 1.0
+		if Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT):
+			dir += 1.0
+	return clampf(dir, -1.0, 1.0)
+
+## v1.9 fix: typing in chat / PM / world settings must not walk, jump or switch hotbar slots.
+func _keys_enabled() -> bool:
+	var vp := get_viewport()
+	if vp == null:
+		return true
+	var fo := vp.gui_get_focus_owner()
+	return not (fo is LineEdit or fo is TextEdit)
+
+func _key(k: Key) -> bool:
+	return _keys_enabled() and Input.is_key_pressed(k)
+
+## One movement step (pure input → physics, also used by tools/v19_check.gd).
+## Horizontal speed is always steerable, on the ground and in the air (v1.9 fix).
+func step_movement(delta: float, dir: float, jump_pressed: bool, jump_held: bool) -> void:
+	var target := dir * SPEED
+	var accel: float
+	if on_floor:
+		accel = ACCEL_GROUND if dir != 0.0 else FRICTION_GROUND
+		## Turning around on the ground is extra snappy.
+		if dir != 0.0 and signf(velocity.x) != 0.0 and signf(velocity.x) != signf(dir):
+			accel += FRICTION_GROUND
+	else:
+		accel = ACCEL_AIR if dir != 0.0 else DRAG_AIR
+	velocity.x = move_toward(velocity.x, target, accel * delta)
+	## Coyote time + jump buffer.
+	if on_floor:
+		_coyote_t = COYOTE_TIME
+		_jumping = false
+	else:
+		_coyote_t = maxf(_coyote_t - delta, 0.0)
+	if jump_pressed:
+		_jump_buffer_t = JUMP_BUFFER
+	else:
+		_jump_buffer_t = maxf(_jump_buffer_t - delta, 0.0)
+	if _jump_buffer_t > 0.0 and _coyote_t > 0.0:
+		velocity.y = JUMP_V
+		on_floor = false
+		_coyote_t = 0.0
+		_jump_buffer_t = 0.0
+		_jumping = true
+		_land_squash = -0.18
+		Sfx.play_jump()
+		_spawn_dust(0.4)
+		jumped.emit()
+	if not on_floor:
+		## Variable jump height: let go early and the jump is cut short.
+		if _jumping and velocity.y < 0.0 and not jump_held:
+			velocity.y *= JUMP_CUT
+			_jumping = false
+		var g := GRAVITY * (FALL_GRAVITY_MULT if velocity.y > 0.0 else 1.0)
+		velocity.y = minf(velocity.y + g * delta, MAX_FALL)
+	var was_floor := on_floor
+	var fall_speed := velocity.y
+	_resolve_tiles(delta)
+	if on_floor and not was_floor:
+		_jumping = false
+		if _air_t > 0.12:
+			_land_squash = clampf(fall_speed / MAX_FALL, 0.0, 1.0) * 0.3
+			landed.emit(fall_speed)
+			Sfx.play("land", 0.1)
+			_spawn_dust(clampf(fall_speed / MAX_FALL, 0.3, 1.0))
+			if fall_speed > 380.0:
+				_shake(0.08, 1.5)
+		_air_t = 0.0
+	elif not on_floor:
+		_air_t += delta
+	## Animation state for the avatar.
+	if on_floor and absf(velocity.x) > 8.0:
+		anim_t += delta * absf(velocity.x) / SPEED * 10.0
+	elif on_floor:
+		anim_t = 0.0
+	_land_squash = move_toward(_land_squash, 0.0, delta * 1.6)
+	queue_redraw()
 
 ## v1.8: blocks take several hits. Holding LMB (or the touch Punch button) keeps hitting.
 func _hold_punch(delta: float) -> void:
@@ -145,6 +273,18 @@ func _unhandled_input(event: InputEvent) -> void:
 			_drop_selected()
 			get_viewport().set_input_as_handled()
 			return
+	## v1.9: a second finger tapping the world (while the first one holds ◀/▶) punches / uses that tile.
+	## Finger 0 already arrives as an emulated mouse click below.
+	if event is InputEventScreenTouch and event.pressed and (event as InputEventScreenTouch).index > 0:
+		var wp: Vector2 = get_canvas_transform().affine_inverse() * (event as InputEventScreenTouch).position
+		var tt: Vector2i = world.world_to_tile(wp)
+		if _in_reach(tt) and _hit_cd <= 0.0:
+			if world.get_tile(tt.x, tt.y) == Tiles.Id.AIR and not inv.is_fist():
+				_place(tt)
+			else:
+				_punch_or_use(tt)
+			get_viewport().set_input_as_handled()
+		return
 	if event is InputEventMouseButton and not event.pressed and (event as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
 		_mouse_hold = false
 	if event is InputEventMouseButton and event.pressed:
@@ -162,6 +302,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_place(t)
 
 func _hotbar_keys() -> void:
+	if not _keys_enabled():
+		return
 	for i in range(mini(9, inv.hotbar_len())):
 		if Input.is_physical_key_pressed(KEY_1 + i):
 			inv.select(i)
@@ -386,11 +528,27 @@ func _blocks(id: int, tile_top: float, vertical: bool) -> bool:
 
 func _resolve_tiles(delta: float) -> void:
 	var pos := global_position
+	## Never stay stuck inside a block (e.g. someone placed one on you): pop out upward first.
+	if _overlaps_solid(pos):
+		pos = _unstick(pos)
 	pos.x += velocity.x * delta
 	pos = _separate(pos, true)
 	var before_y := pos.y
 	_prev_bottom = pos.y + BODY.y * 0.5
-	pos.y += velocity.y * delta
+	var want_y := pos.y + velocity.y * delta
+	## Ceiling corner correction: if only the edge of the head would hit, slide around it.
+	if velocity.y < 0.0 and _overlaps_solid(Vector2(pos.x, want_y)):
+		for nudge in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, CORNER_NUDGE]:
+			var done := false
+			for sgn in [-1.0, 1.0]:
+				var np := Vector2(pos.x + sgn * nudge, want_y)
+				if not _overlaps_solid(np) and not _overlaps_solid(Vector2(np.x, pos.y)):
+					pos.x = np.x
+					done = true
+					break
+			if done:
+				break
+	pos.y = want_y
 	pos = _separate(pos, false)
 	on_floor = false
 	if velocity.y >= 0.0 and pos.y <= before_y + 0.01:
@@ -399,9 +557,29 @@ func _resolve_tiles(delta: float) -> void:
 			velocity.y = 0.0
 	if pos.y > before_y + 0.01 and velocity.y < 0.0:
 		velocity.y = 0.0
+		_jumping = false
 	pos.x = clampf(pos.x, BODY.x * 0.5, world.W * Tiles.SIZE - BODY.x * 0.5)
 	pos.y = clampf(pos.y, BODY.y * 0.5, world.H * Tiles.SIZE - BODY.y * 0.5)
 	global_position = pos
+
+## True if the body at `pos` overlaps a solid tile (platforms ignored).
+func _overlaps_solid(pos: Vector2) -> bool:
+	var half := BODY * 0.5
+	var min_t: Vector2i = world.world_to_tile(pos - half)
+	var max_t: Vector2i = world.world_to_tile(pos + half - Vector2(0.01, 0.01))
+	var body_r := Rect2(pos - half, BODY)
+	for ty in range(min_t.y, max_t.y + 1):
+		for tx in range(min_t.x, max_t.x + 1):
+			if Tiles.is_solid(world.get_tile(tx, ty)) and body_r.intersects(Rect2(tx * Tiles.SIZE, ty * Tiles.SIZE, Tiles.SIZE, Tiles.SIZE)):
+				return true
+	return false
+
+func _unstick(pos: Vector2) -> Vector2:
+	for step in range(1, 4 * Tiles.SIZE):
+		for off in [Vector2(0, -step), Vector2(-step, 0), Vector2(step, 0), Vector2(0, step)]:
+			if not _overlaps_solid(pos + off):
+				return pos + off
+	return pos
 
 func _feet_on_ground(pos: Vector2) -> bool:
 	var foot: Vector2 = pos + Vector2(0, BODY.y * 0.5 + 1.0)
@@ -442,6 +620,20 @@ func set_touch_dir(d: float) -> void:
 func request_touch_jump() -> void:
 	_touch_jump = true
 
+## v1.9: the touch Jump button is held (multi-touch) so short taps = small hops, hold = full jump.
+func set_touch_jump(held: bool) -> void:
+	if held and not _touch_jump_held:
+		_touch_jump = true
+	_touch_jump_held = held
+
+## Release every touch input (app lost focus, panel opened, controls rebuilt).
+func release_touch_inputs() -> void:
+	_touch_dir = 0.0
+	_touch_jump = false
+	_touch_jump_held = false
+	_touch_down = false
+	_touch_punch_held = false
+
 func touch_punch_at(world_pos: Vector2) -> void:
 	var t: Vector2i = world.world_to_tile(world_pos)
 	if _in_reach(t):
@@ -465,7 +657,10 @@ func _draw() -> void:
 	if look == null:
 		return
 	var AvatarLookScript = load("res://scripts/avatar.gd")
-	AvatarLookScript.draw_look(self, look, facing)
+	var anim := {"walk": anim_t, "squash": _land_squash}
+	if not on_floor:
+		anim["air"] = velocity.y
+	AvatarLookScript.draw_look(self, look, facing, anim)
 
 func set_look_from_dict(data: Dictionary) -> void:
 	if look == null:

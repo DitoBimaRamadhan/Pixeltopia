@@ -35,6 +35,7 @@ var shop: Node = null  ## v1.8 scripts/ui/shop_panel.gd
 var hub: Node = null  ## v1.8 scripts/ui/hub_panel.gd
 var tutorial: Node = null
 var hub_open: bool = false
+var touch: Node = null  ## v1.9 multi-touch pad (scripts/ui/touch_controls.gd)
 var _toast: Label = null
 var _fps_lbl: Label = null
 var _hub_btn: Button = null
@@ -258,7 +259,7 @@ func _on_inv_changed() -> void:
 	if splice_open:
 		_rebuild_splice()
 	if _gems_lbl:
-		_gems_lbl.text = "Gems: %d" % inv.gems
+		_gems_lbl.text = I18n.t("gems", [inv.gems])
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton and event.pressed:
@@ -402,7 +403,14 @@ func _set_craft_visible(v: bool) -> void:
 	craft_panel.visible = v
 
 func _emit_block_input() -> void:
-	pause_changed.emit(paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open or splice_open or achieve_open)
+	var blocked: bool = paused or craft_open or weather_open or backpack_open or avatar_open or shop_open or quest_open or splice_open or achieve_open or hub_open
+	if blocked:
+		## A panel opened while a finger was on the pad: never leave the player walking/punching.
+		if touch:
+			touch.release_all()
+		if player and player.has_method("release_touch_inputs"):
+			player.release_touch_inputs()
+	pause_changed.emit(blocked)
 
 func _rebuild_hotbar() -> void:
 	for c in bar.get_children():
@@ -495,16 +503,15 @@ func _setup_touch() -> void:
 	var place: Button = $Root/TouchPad/BtnPlace
 	var prev: Button = $Root/TouchPad/BtnHotPrev
 	var nextb: Button = $Root/TouchPad/BtnHotNext
-	left.button_down.connect(func() -> void: player.set_touch_dir(-1.0))
-	left.button_up.connect(func() -> void: player.set_touch_dir(0.0))
-	right.button_down.connect(func() -> void: player.set_touch_dir(1.0))
-	right.button_up.connect(func() -> void: player.set_touch_dir(0.0))
-	jump.pressed.connect(func() -> void:
-		player.request_touch_jump()
-		Sfx.play_ui())
-	## v1.8: hold Punch to keep hitting (blocks need several hits).
-	punch.button_down.connect(func() -> void: player.set_touch_punch(true))
-	punch.button_up.connect(func() -> void: player.set_touch_punch(false))
+	## v1.9: multi-touch pad (see scripts/ui/touch_controls.gd for why Button signals were not enough).
+	touch = preload("res://scripts/ui/touch_controls.gd").new()
+	touch.name = "TouchControls"
+	add_child(touch)
+	touch.bind("left", left, true)
+	touch.bind("right", right, true)
+	touch.bind("jump", jump, true)
+	touch.bind("punch", punch, true)
+	touch.hold_changed.connect(_on_touch_hold)
 	place.pressed.connect(_touch_place)
 	## v1.8: hold Down to drop through one-way platforms.
 	var down := UiCircle.make_button(I18n.t("down_btn"), UiCircle.COMPACT_SIZE, Color(0.35, 0.5, 0.7))
@@ -515,15 +522,33 @@ func _setup_touch() -> void:
 	down.offset_top = -132.0
 	down.offset_right = 232.0
 	down.offset_bottom = -76.0
-	down.button_down.connect(func() -> void: player.set_touch_down(true))
-	down.button_up.connect(func() -> void: player.set_touch_down(false))
 	$Root/TouchPad.add_child(down)
+	touch.bind("down", down, true)
 	prev.pressed.connect(func() -> void:
 		inv.select((inv.selected - 1 + inv.hotbar_len()) % inv.hotbar_len())
 		Sfx.play_ui())
 	nextb.pressed.connect(func() -> void:
 		inv.select((inv.selected + 1) % inv.hotbar_len())
 		Sfx.play_ui())
+
+func _on_touch_hold(action: String, held: bool) -> void:
+	match action:
+		"left", "right":
+			var d := 0.0
+			if touch.is_held("left"):
+				d -= 1.0
+			if touch.is_held("right"):
+				d += 1.0
+			## Both held: the most recently pressed one wins.
+			if touch.is_held("left") and touch.is_held("right"):
+				d = -1.0 if action == "left" and held else (1.0 if action == "right" and held else player._touch_dir)
+			player.set_touch_dir(d)
+		"jump":
+			player.set_touch_jump(held)
+		"down":
+			player.set_touch_down(held)
+		"punch":
+			player.set_touch_punch(held)
 
 func _touch_place() -> void:
 	var ahead := player.global_position + Vector2(player.facing * Tiles.SIZE * 1.2, 0)
@@ -1333,6 +1358,24 @@ func _layout_pause_circles() -> void:
 		b.text = str(labels.get(n, b.text))
 		UiCircle.apply(b, UiCircle.ACTION_SIZE, accents.get(n, Color(0.22, 0.48, 0.78)))
 
+## v1.9 fix: on 16:9 / 4:3 screens the hotbar ◀▶ arrows (fixed at centre ±340 px) overlapped the
+## ▶ move button and the Punch button, so touches meant for Punch switched hotbar slots instead.
+## Keep them between the left and right button clusters for any width / touch size.
+func _layout_hot_arrows() -> void:
+	var prev := get_node_or_null("Root/TouchPad/BtnHotPrev") as Control
+	var nextb := get_node_or_null("Root/TouchPad/BtnHotNext") as Control
+	if prev == null or nextb == null:
+		return
+	var w := UiCircle.HOTBAR_SIZE
+	var sc: float = Settings.touch_scale if "touch_scale" in Settings else 1.0
+	var cluster := (16.0 + UiCircle.TOUCH_SIZE * 2.0 + 8.0) * maxf(sc, 1.0) + 8.0
+	var half_w: float = get_viewport().get_visible_rect().size.x * 0.5
+	var gap := clampf(half_w - cluster - w * maxf(sc, 1.0), 60.0, 340.0)
+	prev.offset_left = -gap - w
+	prev.offset_right = -gap
+	nextb.offset_left = gap
+	nextb.offset_right = gap + w
+
 func _style_static_circles() -> void:
 	## Style all remaining scene buttons as true circles (≥48dp).
 	var touch_accent := Color(0.2, 0.45, 0.75)
@@ -1382,6 +1425,9 @@ func _style_static_circles() -> void:
 				b.offset_right = 340.0 + w
 				b.offset_top = -12.0 - h
 				b.offset_bottom = -12.0
+	_layout_hot_arrows()
+	if not get_viewport().size_changed.is_connected(_layout_hot_arrows):
+		get_viewport().size_changed.connect(_layout_hot_arrows)
 	if has_node("Root/Craft/Panel/VBox/BtnClose"):
 		UiCircle.apply($Root/Craft/Panel/VBox/BtnClose, UiCircle.ACTION_SIZE, Color(0.55, 0.3, 0.35))
 	if has_node("Root/WeatherUI/Panel/VBox/BtnAuto"):
@@ -1958,6 +2004,7 @@ func _on_settings_changed() -> void:
 			if c is Control:
 				(c as Control).pivot_offset = (c as Control).size * 0.5
 				(c as Control).scale = Vector2.ONE * Settings.touch_scale
+	_layout_hot_arrows()
 
 func _process(_delta: float) -> void:
 	if _fps_lbl and _fps_lbl.visible:
