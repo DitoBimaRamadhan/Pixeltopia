@@ -12,6 +12,10 @@ var _rain: AudioStreamPlayer = null
 var _order: Array = []
 var _track_i: int = -1
 var now_playing: String = ""
+var now_index: int = -1  ## index into TRACKS of the current song
+var _amb: Array = []  ## two AudioStreamPlayers for cross-fading ambience
+var _amb_i: int = 0
+var ambience_now: String = ""
 
 signal track_changed(title: String)
 
@@ -28,7 +32,36 @@ const TRACKS := [
 	["res://assets/audio/music/09_desert_caravan.ogg", "Desert Caravan"],
 	["res://assets/audio/music/10_sunset_harvest.ogg", "Sunset Harvest"],
 	["res://assets/audio/music/11_snowy_peaks.ogg", "Snowy Peaks"],
+	## v1.9 Soundtrack Vol. 2 (tools/audio/gen_music_v19.py) — longer multi-section pieces, Vorbis q7.
+	["res://assets/audio/music2/12_sunrise_over_pixeltopia.ogg", "Sunrise over Pixeltopia"],
+	["res://assets/audio/music2/13_tilled_soil.ogg", "Tilled Soil"],
+	["res://assets/audio/music2/14_greenhouse_jam.ogg", "Greenhouse Jam"],
+	["res://assets/audio/music2/15_lanterns_at_dusk.ogg", "Lanterns at Dusk"],
+	["res://assets/audio/music2/16_deep_mine_shuffle.ogg", "Deep Mine Shuffle"],
+	["res://assets/audio/music2/17_crystal_caverns.ogg", "Crystal Caverns"],
+	["res://assets/audio/music2/18_trade_plaza.ogg", "Trade Plaza"],
+	["res://assets/audio/music2/19_cloud_gardens.ogg", "Cloud Gardens"],
+	["res://assets/audio/music2/20_lockkeepers_rest.ogg", "Lockkeeper's Rest"],
+	["res://assets/audio/music2/21_rainy_rooftops.ogg", "Rainy Rooftops"],
+	["res://assets/audio/music2/22_harvest_festival.ogg", "Harvest Festival"],
+	["res://assets/audio/music2/23_moonlit_orchard.ogg", "Moonlit Orchard"],
+	["res://assets/audio/music2/24_builders_anthem.ogg", "Builder's Anthem"],
+	["res://assets/audio/music2/25_desert_mirage.ogg", "Desert Mirage"],
+	["res://assets/audio/music2/26_snowfall_village.ogg", "Snowfall Village"],
+	["res://assets/audio/music2/27_sky_island_chase.ogg", "Sky Island Chase"],
+	["res://assets/audio/music2/28_world_lock_waltz.ogg", "World Lock Waltz"],
+	["res://assets/audio/music2/29_seed_vault_lullaby.ogg", "Seed Vault Lullaby"],
 ]
+const VOL1_COUNT := 11
+## v1.9 ambience loops (tools/audio/gen_music_v19.py): chosen by time of day, weather and depth.
+const AMBIENCE := {
+	"day": "res://assets/audio/ambience/day_birds.ogg",
+	"night": "res://assets/audio/ambience/night_crickets.ogg",
+	"cave": "res://assets/audio/ambience/cave_drips.ogg",
+	"wind": "res://assets/audio/ambience/mountain_wind.ogg",
+	"rain": "res://assets/audio/ambience/rain_heavy.ogg",
+	"ocean": "res://assets/audio/ambience/ocean_shore.ogg",
+}
 const SFX_FILES := ["ui", "ui_open", "ui_close", "place", "hit", "break", "break_glass", "footstep", "jump", "land",
 	"harvest", "plant", "craft", "splice", "buy", "sell", "coin", "trade", "levelup", "achievement", "daily", "pm",
 	"error", "thunder", "door", "lock"]
@@ -71,9 +104,79 @@ func _ready() -> void:
 	_rain.volume_db = -22.0
 	add_child(_rain)
 	_rain.stream = _make_rain_loop()
-	_order = range(TRACKS.size())
-	_order.shuffle()
+	for i in range(2):
+		var ap := AudioStreamPlayer.new()
+		ap.bus = _bus("SFX")
+		ap.volume_db = -80.0
+		add_child(ap)
+		_amb.append(ap)
+	rebuild_order()
 	call_deferred("start_music")
+
+## Album filter from Settings.music_album: "all" | "vol1" | "vol2".
+func album_indices() -> Array:
+	var album: String = str(Settings.music_album) if Settings and "music_album" in Settings else "all"
+	var out: Array = []
+	for i in range(TRACKS.size()):
+		if album == "vol1" and i >= VOL1_COUNT:
+			continue
+		if album == "vol2" and i < VOL1_COUNT:
+			continue
+		out.append(i)
+	return out
+
+func rebuild_order() -> void:
+	_order = album_indices()
+	_order.shuffle()
+	_track_i = -1
+
+## Jukebox: play a chosen song now; the shuffle continues after it.
+func play_track(index: int) -> void:
+	if index < 0 or index >= TRACKS.size():
+		return
+	var at := _order.find(index)
+	if at < 0:
+		_order.append(index)
+		at = _order.size() - 1
+	_track_i = at - 1
+	if _bgm:
+		_bgm.stop()
+	_next_track()
+
+## Cross-fade to an ambience loop ("" = silence). Volume follows the SFX bus × Settings.ambience_volume.
+func set_ambience(key: String) -> void:
+	if key == ambience_now or _amb.is_empty():
+		return
+	ambience_now = key
+	var old: AudioStreamPlayer = _amb[_amb_i]
+	_amb_i = 1 - _amb_i
+	var nw: AudioStreamPlayer = _amb[_amb_i]
+	if old.playing:
+		var tw := create_tween()
+		tw.tween_property(old, "volume_db", -60.0, 2.5)
+		tw.tween_callback(old.stop)
+	var path: String = AMBIENCE.get(key, "")
+	if path == "" or muted or not ResourceLoader.exists(path):
+		return
+	var st: AudioStream = load(path)
+	if st is AudioStreamOggVorbis:
+		(st as AudioStreamOggVorbis).loop = true
+	nw.stream = st
+	nw.volume_db = -60.0
+	nw.play()
+	var target := _amb_db()
+	create_tween().tween_property(nw, "volume_db", target, 2.5)
+
+func _amb_db() -> float:
+	var v: float = float(Settings.ambience_volume) if Settings and "ambience_volume" in Settings else 0.6
+	return -80.0 if v <= 0.001 else linear_to_db(v) - 12.0
+
+func refresh_ambience_volume() -> void:
+	if _amb.is_empty():
+		return
+	var p: AudioStreamPlayer = _amb[_amb_i]
+	if p.playing:
+		p.volume_db = _amb_db()
 
 func start_music() -> void:
 	if muted or music_muted or _bgm == null:
@@ -87,8 +190,11 @@ func start_music() -> void:
 func _next_track() -> void:
 	if muted or music_muted or TRACKS.is_empty():
 		return
+	if _order.is_empty():
+		rebuild_order()
+	var wrapped := _track_i + 1 >= _order.size()
 	_track_i = (_track_i + 1) % _order.size()
-	if _track_i == 0 and _order.size() > 1:
+	if wrapped and _order.size() > 1:
 		var last: int = _order[_order.size() - 1]
 		_order.shuffle()
 		if _order[0] == last:
@@ -103,6 +209,7 @@ func _next_track() -> void:
 			(st as AudioStreamOggVorbis).loop = false
 		_bgm.stream = st
 		now_playing = str(tr[1])
+	now_index = int(_order[_track_i])
 	_bgm.play()
 	track_changed.emit(now_playing)
 
@@ -119,9 +226,18 @@ func set_muted(v: bool) -> void:
 	muted = v
 	if muted:
 		stop_music()
+		var want_rain := _rain_want
 		set_rain(false)
+		_rain_want = want_rain  ## v1.9 fix: rain resumes after unmute
+		var keep := ambience_now
+		set_ambience("")
+		ambience_now = keep  ## resume the same ambience on unmute
 	else:
 		start_music()
+		set_rain(_rain_want)
+		var key := ambience_now
+		ambience_now = ""
+		set_ambience(key)
 
 func toggle_mute() -> bool:
 	set_muted(not muted)
@@ -135,9 +251,12 @@ func toggle_music() -> bool:
 		start_music()
 	return music_muted
 
+var _rain_want: bool = false
+
 func set_rain(on: bool) -> void:
 	if _rain == null:
 		return
+	_rain_want = on
 	if muted or not on:
 		_rain.stop()
 		return

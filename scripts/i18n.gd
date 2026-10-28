@@ -88,6 +88,11 @@ const S := {
 	"set_tutorial": ["Ulangi tutorial", "Replay tutorial"],
 	"set_next_track": ["Lagu berikutnya", "Next song"],
 	"now_playing": ["Lagu: %s", "Song: %s"],
+	"set_ambience": ["Suara alam", "Ambience"],
+	"set_album": ["Album musik", "Music album"],
+	"album_all": ["Semua", "All"], "album_vol1": ["Vol. 1", "Vol. 1"], "album_vol2": ["Vol. 2 (baru)", "Vol. 2 (new)"],
+	"jukebox": ["Jukebox — ketuk lagu untuk memutar", "Jukebox — tap a song to play it"],
+	"show_jukebox": ["Buka jukebox", "Open jukebox"], "hide_jukebox": ["Tutup jukebox", "Close jukebox"],
 	"set_restart_note": ["Bahasa berubah penuh setelah membuka ulang panel.", "Language fully updates when panels are reopened."],
 	# --- tutorial ---
 	"tut_skip": ["Lewati", "Skip"], "tut_next": ["Lanjut", "Next"], "tut_done": ["Mulai main!", "Let's play!"],

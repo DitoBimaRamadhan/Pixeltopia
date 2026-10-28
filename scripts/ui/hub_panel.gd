@@ -22,6 +22,7 @@ signal daily_badge_changed(ready: bool, unread: int)
 signal replay_tutorial
 
 const TABS := ["daily", "rank", "friends", "world", "settings"]
+var _jukebox_open: bool = false
 
 func setup(p_hud: Node, parent: Control) -> void:
 	hud = p_hud
@@ -404,6 +405,42 @@ func _build_settings(list: VBoxContainer) -> void:
 		rebuild())
 	mr.add_child(nb)
 	list.add_child(mr)
+	_slider(list, "set_ambience", Settings.ambience_volume, "ambience_volume")
+	var ar := UiKit.row()
+	var al := UiKit.label(I18n.t("set_album"), 14, Color.WHITE, false)
+	al.custom_minimum_size = Vector2(190, 0)
+	ar.add_child(al)
+	for alb in ["all", "vol1", "vol2"]:
+		var ab := UiKit.button(I18n.t("album_" + alb), Color(0.3, 0.35, 0.6), 110.0, 36.0)
+		UiKit.set_tab_style(ab, Settings.music_album == alb)
+		var aa: String = alb
+		ab.pressed.connect(func() -> void:
+			Settings.set_value("music_album", aa)
+			rebuild())
+		ar.add_child(ab)
+	list.add_child(ar)
+	var jb := UiKit.button(I18n.t("hide_jukebox" if _jukebox_open else "show_jukebox"), Color(0.35, 0.3, 0.55), 180.0, 36.0)
+	jb.pressed.connect(func() -> void:
+		_jukebox_open = not _jukebox_open
+		rebuild())
+	list.add_child(jb)
+	if _jukebox_open:
+		list.add_child(UiKit.label(I18n.t("jukebox"), 12, Color(0.8, 0.85, 1.0)))
+		var grid := GridContainer.new()
+		grid.columns = 2
+		grid.add_theme_constant_override("h_separation", 6)
+		grid.add_theme_constant_override("v_separation", 6)
+		for i in Sfx.album_indices():
+			var title: String = str(Sfx.TRACKS[i][1])
+			var tb2 := UiKit.button(("▶ " if i == Sfx.now_index else "") + title, Color(0.2, 0.32, 0.5), 220.0, 34.0)
+			tb2.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			UiKit.set_tab_style(tb2, i == Sfx.now_index)
+			var ii: int = i
+			tb2.pressed.connect(func() -> void:
+				Sfx.play_track(ii)
+				rebuild())
+			grid.add_child(tb2)
+		list.add_child(grid)
 	var lr := UiKit.row()
 	var ll := UiKit.label(I18n.t("set_language"), 14, Color.WHITE, false)
 	ll.custom_minimum_size = Vector2(190, 0)

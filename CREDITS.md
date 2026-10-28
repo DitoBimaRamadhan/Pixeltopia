@@ -11,6 +11,13 @@
   (`assets/audio/sfx/*.ogg`): original, synthesized from code by
   `tools/audio/gen_audio.py` (numpy + ffmpeg/libvorbis). No samples or third-party
   recordings are used.
+- **v1.9 Soundtrack Vol. 2 — 18 longer music tracks** (`assets/audio/music2/*.ogg`,
+  ~3.5–4 min each, multi-section with key changes) and **6 ambience loops**
+  (`assets/audio/ambience/*.ogg`: day birds, night crickets, cave drips, mountain wind,
+  heavy rain, ocean shore): original, synthesized from code by
+  `tools/audio/gen_music_v19.py` (numpy FM/additive instruments, procedural drums,
+  convolution reverb, encoded with ffmpeg/libvorbis). No samples or third-party
+  recordings are used.
 
 ## Font
 - **Pixelify Sans** — Copyright 2021 The Pixelify Sans Project Authors

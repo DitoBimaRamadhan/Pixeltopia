@@ -19,6 +19,8 @@ var _mp_chat_log: PackedStringArray = PackedStringArray()
 var _trade: Dictionary = {}
 var _rain_secs: float = 0.0
 var _night_logged: bool = false
+var _amb_cd: float = 0.5
+const AmbiencePick = preload("res://scripts/ambience.gd")
 var _profile_ready: bool = false
 var _profile_cd: float = 0.0
 const PROFILE_SAVE_SECS := 20.0
@@ -321,6 +323,12 @@ func _process(delta: float) -> void:
 		achievements.report("night_seen", 1)
 	elif weather and int(weather.period) != 3:
 		_night_logged = false
+	_amb_cd -= delta
+	if _amb_cd <= 0.0:
+		_amb_cd = 1.5
+		var sfx := get_node_or_null("/root/Sfx")
+		if sfx and sfx.has_method("set_ambience") and weather:
+			sfx.set_ambience(AmbiencePick.pick(world, world.world_to_tile(player.global_position), int(weather.period), int(weather.mood)))
 
 func _mark_dirty() -> void:
 	dirty = true

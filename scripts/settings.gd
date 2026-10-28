@@ -13,6 +13,8 @@ var tutorial_done: bool = false
 var touch_scale: float = 1.0  ## 0.8..1.3
 var screen_shake: bool = true
 var show_fps: bool = false
+var ambience_volume: float = 0.6  ## v1.9 nature / cave ambience loops
+var music_album: String = "all"  ## v1.9 "all" | "vol1" | "vol2"
 
 func _ready() -> void:
 	var lang := OS.get_locale_language()
@@ -32,6 +34,9 @@ func _load() -> void:
 	touch_scale = clampf(float(cf.get_value("ui", "touch_scale", 1.0)), 0.8, 1.3)
 	screen_shake = bool(cf.get_value("ui", "screen_shake", true))
 	show_fps = bool(cf.get_value("ui", "show_fps", false))
+	ambience_volume = clampf(float(cf.get_value("audio", "ambience", ambience_volume)), 0.0, 1.0)
+	var al := str(cf.get_value("audio", "album", "all"))
+	music_album = al if al in ["all", "vol1", "vol2"] else "all"
 
 func save() -> void:
 	var cf := ConfigFile.new()
@@ -42,6 +47,8 @@ func save() -> void:
 	cf.set_value("ui", "touch_scale", touch_scale)
 	cf.set_value("ui", "screen_shake", screen_shake)
 	cf.set_value("ui", "show_fps", show_fps)
+	cf.set_value("audio", "ambience", ambience_volume)
+	cf.set_value("audio", "album", music_album)
 	cf.save(PATH)
 
 static func _db(v: float) -> float:
@@ -66,7 +73,16 @@ func set_value(key: String, v: Variant) -> void:
 		"touch_scale": touch_scale = clampf(float(v), 0.8, 1.3)
 		"screen_shake": screen_shake = bool(v)
 		"show_fps": show_fps = bool(v)
+		"ambience_volume": ambience_volume = clampf(float(v), 0.0, 1.0)
+		"music_album": music_album = str(v) if str(v) in ["all", "vol1", "vol2"] else "all"
 		_: return
 	apply_audio()
 	save()
+	var sfx := get_node_or_null("/root/Sfx")
+	if sfx:
+		if key == "ambience_volume" and sfx.has_method("refresh_ambience_volume"):
+			sfx.refresh_ambience_volume()
+		if key == "music_album" and sfx.has_method("rebuild_order"):
+			sfx.rebuild_order()
+			sfx.skip_track()
 	changed.emit()
