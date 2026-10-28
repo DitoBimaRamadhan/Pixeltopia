@@ -2,6 +2,19 @@
 
 **Original** single-player 2D sandbox + planting prototype (Godot 4).
 
+## v1.9.0 — Gameplay feel & Soundtrack Vol. 2
+- **Move while jumping** on keyboard and touch: the touch pad is now true multi-touch (hold ◀/▶ and
+  tap Jump with another finger; slide between ◀ and ▶), Jump fires on press and holding it jumps higher.
+- Platformer feel: acceleration/friction, air control, coyote time, jump buffer, variable jump height,
+  ceiling corner nudge, un-stick from blocks, camera look-ahead, walk/air/squash animation, landing dust + sound.
+- Second finger tap in the world punches/places while moving; remote players are smoothed and drawn as avatars.
+- 18 new original music tracks (Vol. 2), 6 ambience loops picked by place/time/weather, jukebox + album filter
+  + ambience volume in Settings.
+- Fixes: hotbar arrows overlapping touch buttons, typing in chat moving the player, Menu hub not blocking
+  input, gem label language, rain not resuming after unmute.
+- Tests: `godot --headless --path . res://tools/v19_check.tscn`, `res://tools/v18_check.tscn`,
+  `res://tools/stability_check.tscn`; server `cd server && npm test`.
+
 ## v1.6.1 — Multi-server world sync
 - The online server can run as several instances (Deno Deploy regions) and every player sees the **same world**:
   block edits, World Lock + `/access`, chat, player presence and trades are shared through Postgres
@@ -43,7 +56,8 @@ Headless check:
 | Input | Action |
 |--------|--------|
 | A / D or ← / → | Move |
-| W / Space / ↑ | Jump |
+| W / Space / ↑ | Jump (hold for a higher jump; you can steer in the air) |
+| S / ↓ | Drop through one-way platforms |
 | Left click | Punch / break / harvest (or place if holding an item on empty air) |
 | Right click | Place selected block / plant seed / torch |
 | 1–7 | Select hotbar (1 = Fist) |

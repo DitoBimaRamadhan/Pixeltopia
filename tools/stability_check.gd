@@ -1,8 +1,10 @@
-extends SceneTree
+extends Node
 ## Headless stability checks for Pixeltopia main flows (no display).
-## Run: godot --headless --path . --script res://tools/stability_check.gd
+## Run: godot --headless --path . res://tools/stability_check.tscn
+## (v1.9: now a scene so autoloads Sfx/Session/Settings exist — the old --script mode
+##  printed false "Identifier not found" compile errors.)
 
-func _init() -> void:
+func _ready() -> void:
 	var failed := 0
 	failed += _check_preloads()
 	failed += _check_inventory_logic()
@@ -13,10 +15,10 @@ func _init() -> void:
 	failed += _check_session_save()
 	if failed == 0:
 		print("STABILITY_CHECK PASS")
-		quit(0)
+		get_tree().quit(0)
 	else:
 		print("STABILITY_CHECK FAIL count=", failed)
-		quit(1)
+		get_tree().quit(1)
 
 func _check_preloads() -> int:
 	var paths := [
